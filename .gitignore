@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_tmp/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# 运行时数据与日志（目录保留，内容不入库）
+data/*
+logs/*
+!data/.gitkeep
+!logs/.gitkeep
+
+# 密钥
+secrets.env
+.env
+
+# Node
+web/node_modules/
+web/dist/
+
+# 系统
+.DS_Store
+Thumbs.db

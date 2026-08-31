@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HubAck",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string" },
+    "queue_position": { "type": "integer" },
+    "estimated_start": { "type": "string" },
+    "hub_trace_id": { "type": "string" },
+    "wo_number": { "type": "string" }
+  }
+}
+

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ako1WorkOrder",
+  "type": "object",
+  "required": ["wo_number", "module", "action", "scope", "rules", "prohibitions", "deliverable", "deadline"],
+  "properties": {
+    "wo_number": { "type": "string", "pattern": "^WO-(DRAFT|HAI)-[0-9]{8}-[0-9]{3,}$" },
+    "module": { "type": "string" },
+    "action": { "type": "string" },
+    "scope": { "type": "string" },
+    "rules": { "type": "array", "items": { "type": "string" } },
+    "prohibitions": { "type": "array", "items": { "type": "string" } },
+    "deliverable": { "type": "string" },
+    "deadline": { "type": "string" }
+  }
+}
+

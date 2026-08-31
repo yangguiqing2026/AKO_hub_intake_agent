@@ -1,0 +1,61 @@
+# AKO_hub_intake_agent 配置中心（FI-II-07 配置外部化）
+service:
+  host: "0.0.0.0"
+  port: 5026
+  agent_id: "AKO_hub_intake_agent"
+
+intake:
+  max_p0_rounds: 3
+  question_timeout_seconds: 300
+  max_questions_per_round: 3
+  default_deadline_minutes: 90
+  review_score_threshold: 0.9
+  delivery_max_retries: 10
+  retry_base_seconds: 60
+  retry_max_seconds: 600
+  wo_allocate_ttl_seconds: 300
+
+budget:
+  soft_limit_percent: 5
+  monthly_quota_tokens: 1000000
+
+llm_router:
+  simple: "qwen2.5-7b"
+  complex: "deepseek-v3"
+  use_llm: false
+  ollama_base_url: "http://localhost:11434"
+  deepseek_base_url: ""
+
+reviewer:
+  fallback_semantic_score: 1.0
+  use_semantic_llm: false
+
+knowledge:
+  base_url: "http://localhost:8000"
+  enabled: false
+
+gateways:
+  identity_base_url: ""
+  registry_base_url: ""
+  hub_base_url: "http://localhost:8080"
+  heartbeat_interval_seconds: 30
+
+db:
+  session_db: "data/sessions/state.db"
+  queue_db: "data/intake_queue/pending.db"
+  archive_dir: "data/archive"
+
+terms:
+  - term: "报价"
+    module: "AKO_quote_agent"
+    actions: ["审计", "修复", "查看"]
+  - term: "图纸"
+    module: "AKO_drawing_inspector_agent"
+    actions: ["审查", "检查"]
+  - term: "排版"
+    module: "AKO_layout_agent"
+    actions: ["生成图册", "排版"]
+  - term: "设计"
+    module: "AKO_architect_agent"
+    actions: ["方案设计", "结构计算"]
+

@@ -1,0 +1,40 @@
+level: unrated
+name: AKO_hub_intake_agent
+name_zh: 阿格工厂大门 Intake Agent
+version: v0.1.0
+author: AKO_studio
+legal_entity: "91520198MAC8N3YB6U"
+interface_type: api
+status: staging
+description: AKO 工厂唯一入口网关：将人类自然语言转化为结构化 ako1 工单，经 P0 歧义消解与 M07 独立评审后投递 AKO_hub。
+architecture:
+  language: Python
+  framework: FastAPI + LangGraph
+  entry_point: run.py
+  web_framework: React + TypeScript + Zustand
+trust_boundary:
+  capabilities:
+    - id: cap_parse_natural_language
+      name: 语义解析
+      criticality: authorization
+      input: intake_input_v1.json
+      output: intent_tree_v1.json
+    - id: cap_deliver_work_order
+      name: 工单投递
+      criticality: contractual
+      input: ako1_wo_v1.json
+      output: hub_ack_v1.json
+  allowed_callers:
+    - AKO_hub_agent
+    - AKO_guardian_agent
+    - AKO_cluster_guardian_agent
+  data_access_level: PII_RESTRICTED
+  consistency_requirement: read_your_writes
+  resource_quota:
+    max_tokens_per_call: 4000
+    timeout_seconds: 30
+    retry_policy: exponential_backoff
+heartbeat:
+  interval_seconds: 30
+  endpoint: "http://localhost:5000/heartbeat"
+

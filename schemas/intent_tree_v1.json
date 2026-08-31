@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IntentTree",
+  "type": "object",
+  "required": ["entities", "action_candidates"],
+  "properties": {
+    "entities": { "type": "array", "items": { "type": "object" } },
+    "action_candidates": { "type": "array", "items": { "type": "string" } },
+    "ambiguity_report": { "type": "object" }
+  }
+}
+

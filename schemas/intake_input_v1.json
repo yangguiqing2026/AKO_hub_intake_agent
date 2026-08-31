@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IntakeInput",
+  "type": "object",
+  "required": ["raw_text"],
+  "properties": {
+    "raw_text": { "type": "string", "minLength": 10, "maxLength": 2000 },
+    "session_id": { "type": "string" }
+  }
+}
+
