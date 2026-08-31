@@ -1,0 +1,6 @@
+trust_boundary:
+  capabilities: ["intake", "quote", "design"]
+  allowed_callers: ["AKO_hub", "AKO_build_agent"]
+  data_access_level: "C"
+  consistency_requirement: "strong"
+  resource_quota: "500000"

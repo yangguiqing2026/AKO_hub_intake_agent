@@ -1,0 +1,6 @@
+registry:
+  service_name: "AKO_hub_intake_agent"
+  version: "v1.1.0"
+  owner: "AKO_studio"
+  approval_status: "PENDING"
+  compliance_tags: ["FI-IV-06", "FI-II-09"]
