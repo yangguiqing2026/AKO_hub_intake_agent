@@ -1087,6 +1087,13 @@ def test_abandon_session() -> None:
     assert missing.status_code == 404
 
 
+def test_create_session_expert_mode_missing_fields_400() -> None:
+    """专家模式 draft 缺必填字段 → 400 schema_error（修复轮 1 覆盖）。"""
+    response = client.post("/api/v1/intake/sessions", json={"draft_wo": {"action": "审计"}})
+    assert response.status_code == 400
+    assert "schema_error" in response.json()["detail"]
+
+
 def test_queue_stats_and_flush() -> None:
     stats = client.get("/api/v1/intake/queue/stats")
     assert stats.status_code == 200
@@ -1184,7 +1191,11 @@ def create_session(body: CreateSessionBody) -> Dict[str, Any]:
         draft = {**body.draft_wo}
         # 工单号由系统生成（白皮书 US-003），用户无需填写
         draft.setdefault("wo_number", draft_wo_number(seq=1))
-        wo = Ako1WorkOrder.model_validate(draft)
+        try:
+            wo = Ako1WorkOrder.model_validate(draft)
+        except ValidationError as exc:
+            # 缺必填字段（非空值）→ 400 schema_error（设计 7.5，白皮书 S80 schema_error）
+            raise HTTPException(status_code=400, detail=f"schema_error: {exc}")
         problems = validate_work_order(wo)
         if problems:
             raise HTTPException(status_code=400, detail="schema_error: " + "; ".join(problems))
@@ -1252,7 +1263,7 @@ def identity_verify(body: IdentityVerifyBody) -> Dict[str, Any]:
     return verify_human(body.token, config.gateways.identity_base_url)
 ```
 
-`app.py` 顶部补 import：`from typing import Optional`（现有 `Any, Dict` 基础上追加）、`from datetime import datetime`、`from ako_intake.gateways.identity_client import login_human, verify_human`、`from ako_intake.utils.naming import draft_wo_number`。
+`app.py` 顶部补 import：`from typing import Optional`（现有 `Any, Dict` 基础上追加）、`from datetime import datetime`、`from pydantic import ValidationError`（现有 `BaseModel` 基础上追加）、`from ako_intake.gateways.identity_client import login_human, verify_human`、`from ako_intake.utils.naming import draft_wo_number`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
