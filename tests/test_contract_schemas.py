@@ -24,7 +24,7 @@ def _regenerate() -> dict[str, object]:
 def test_committed_schemas_match_pydantic_export() -> None:
     for name, fresh in _regenerate().items():
         committed = json.loads((SCHEMAS / name).read_text(encoding="utf-8"))
-        assert committed == fresh, f"{name} 与 Pydantic 导出不一致，请运行 python scripts/export_contract_schemas.py"
+        assert committed == fresh, f"{name} 与 Pydantic 导出不一致，请运行 PYTHONPATH=. python scripts/export_contract_schemas.py"
 
 
 def test_ws_schema_has_discriminator() -> None:

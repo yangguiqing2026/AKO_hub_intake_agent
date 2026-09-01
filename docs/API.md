@@ -48,7 +48,7 @@
 | `intake_input` | `{text}` | S00→S10 | 文本 10~2000 字符；超限回 `error(TEXT_TOO_LONG/TEXT_TOO_SHORT)` |
 | `p0_response` | `{round, answers[{qid,value}], conservative?}` | S30→S20 | `conservative: true` = 用户选择"按最保守策略处理"，触发 7.1 降级路径 |
 | `wo_edit` | `{draft_wo: {部分字段}}` | S50 人工微调 | 回写后重跑 validate（S60）与 M07 评审（S22），再发 `wo_preview`；校验失败回 `error(SCHEMA_ERROR)` |
-| `wo_confirm` | `{}` | S22/S50→S70 | 确认投递，走三重门禁链路（见"投递链"） |
+| `wo_confirm` | `{}` | S22/S50→S70 | 确认投递，走三重门禁链路（见"投递链"）；registry 拦截分支无前置 status 事件（Phase B 前端须知） |
 | `wo_discard` | `{}` | →IDLE | 放弃当前工单（清空草稿回 IDLE；放弃整个会话用 `session_abandon`） |
 | `session_resume` | `{session_id}` | 断点续传 | 服务端回 `session_snapshot`；会话不存在回 `error(SESSION_NOT_FOUND)` |
 | `session_abandon` | `{}` | →S90 | 放弃整个会话，回 `status{status:"ABANDONED"}` |
@@ -63,14 +63,14 @@
 | `session_snapshot` | `{state, seq}` | 全量快照（续传/gap 修复时下发） |
 | `status` | `{status, detail?}` | 轻量状态迁移通知（PARSING/IDLE/ABANDONED 等） |
 | `p0_interrogation` | `{round, questions[], timeout_seconds, expires_at}` | S30 反问卡片（每轮 ≤3 问） |
-| `p0_timeout` | `{round}` | 单轮反问超时提醒（后端到点仍执行 7.1 保守降级） |
+| `p0_timeout` | `{round}` | 单轮反问超时提醒（后端到点仍执行 7.1 保守降级）；Phase A 仅契约预留，Phase D 实现 |
 | `wo_preview` | `{draft_wo, confidence_score, review_record?, risk_flag?, actions}` | S50/S22 工单预览；`draft_wo` 出站前经 PII 脱敏 |
 | `review_result` | `{review_record}` | M07 评审结果（独立推送，供评审面板单独渲染） |
 | `hub_ack` | `{ack}` | S70 投递回执（正式编号/hub_trace_id/队列位置） |
 | `queued_local` | `{wo_number, next_retry_at}` | S65 Hub 不可达入本地队列 |
 | `manual_review` | `{draft_wo, reason}` | S85 入人工审核队列（reason 如 `REGISTRY_BLOCKED`/`P0_MAX_ROUNDS_EXCEEDED`） |
 | `stream_chunk` | `{stream_id, kind: "start"\|"chunk"\|"end", data}` | 分片流帧（3.4）；`use_llm=false`（当前配置）时无此帧 |
-| `soft_break` | `{usage_percent, monthly_quota_tokens}` | 预算软熔断触发（7.6），前端升横幅 + 强制专家模式 |
+| `soft_break` | `{usage_percent, monthly_quota_tokens}` | 预算软熔断触发（7.6），前端升横幅 + 强制专家模式；Phase A 仅契约预留，Phase D 实现 |
 | `error` | `{code, message}` | 见"错误码"表 |
 | `pong` | `{}` | 心跳应答 |
 
@@ -129,7 +129,7 @@
 
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
-| POST | /ako/api/v1/registry/verify | 等级 + 信任边界校验（投递前门禁；C 级/未评级拦截） |
+| POST | /ako/api/v1/registry/verify | 等级 + 信任边界校验（投递前门禁；C 级/未评级拦截，仅 registry 已配置时） |
 
 ---
 

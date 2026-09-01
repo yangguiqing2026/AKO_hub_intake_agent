@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import app as app_module
 from app import app
 
 client = TestClient(app)
@@ -134,4 +135,46 @@ def test_identity_verify_dev_mode() -> None:
     response = client.post("/api/v1/identity/verify", json={"token": "dev-token"})
     assert response.status_code == 200
     assert response.json()["ok"] is True
+
+
+def test_expert_mode_draft_numbers_unique() -> None:
+    """同日两次专家创建 → 草稿工单号不同（终审 C2）。"""
+    draft = {
+        "module": "AKO_quote_agent", "action": "审计", "scope": "只动报价校验",
+        "rules": ["不修改生产环境"], "prohibitions": ["禁止直接修改生产数据库"],
+        "deliverable": "输出审计报告", "deadline": "90分钟",
+    }
+    a = client.post("/api/v1/intake/sessions", json={"draft_wo": draft}).json()
+    b = client.post("/api/v1/intake/sessions", json={"draft_wo": draft}).json()
+    wa = client.get(f"/api/v1/intake/sessions/{a['session_id']}").json()["draft_work_order"]["wo_number"]
+    wb = client.get(f"/api/v1/intake/sessions/{b['session_id']}").json()["draft_work_order"]["wo_number"]
+    assert wa != wb
+
+
+def test_rest_auth_dev_mode_passthrough() -> None:
+    """identity 未配置（开发态）→ 无 Authorization 头仍放行。"""
+    assert client.get("/metrics").status_code == 200
+
+
+def test_rest_auth_blocks_when_identity_configured(monkeypatch) -> None:
+    """identity 已配置且不可达 → 401。"""
+    monkeypatch.setattr(app_module.config, "gateways", type(app_module.config.gateways)(identity_base_url="http://127.0.0.1:9", registry_base_url="", hub_base_url=""))
+    response = client.get("/metrics")
+    assert response.status_code == 401
+
+
+def test_create_session_raw_text_runs_pipeline() -> None:
+    """raw_text 走自然语言链路（spec 3.5.2，终审 I2）。"""
+    response = client.post("/api/v1/intake/sessions", json={"raw_text": "修复报价模块的bug，只动校验逻辑，不动数据库"})
+    assert response.status_code == 200
+    assert response.json()["status"] in ("DELIVERED", "CLARIFYING", "MANUAL_REVIEW", "FORM_BUILDING")
+
+
+def test_ws_auth_timeout_closes(monkeypatch) -> None:
+    """连接后未发 auth → 超时关闭（spec 3.2.1，终审 I5）。"""
+    monkeypatch.setattr(app_module.config, "ws", type(app_module.config.ws)(heartbeat_seconds=30, stream_ack_bytes=16384, auth_timeout_seconds=0.05))
+    with client.websocket_connect("/ws/intake") as websocket:
+        data = websocket.receive_json()
+        assert data["type"] == "error"
+        assert data["payload"]["code"] == "AUTH_REQUIRED"
 

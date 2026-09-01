@@ -132,12 +132,12 @@ class WsSessionHandler:
         self._seqs[session_id] = seq
         return seq
 
-    def _msg(self, type_: str, session_id: str, payload: Optional[Dict[str, Any]] = None, req_id: str = "") -> OutboundMessage:
+    def _msg(self, type_: str, session_id: str, payload: Optional[Dict[str, Any]] = None, req_id: str = "", seq: Optional[int] = None) -> OutboundMessage:
         return OutboundMessage(
             type=type_,
             req_id=req_id,
             session_id=session_id,
-            seq=self.next_seq(session_id),
+            seq=self.next_seq(session_id) if seq is None else seq,
             ts=datetime.now().isoformat(),
             payload=payload or {},
         )
@@ -198,7 +198,7 @@ class WsSessionHandler:
         ]
 
     def _on_intake_input(self, msg: InboundMessage) -> List[OutboundMessage]:
-        session_id = msg.session_id or f"sess-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        session_id = msg.session_id or f"sess-{datetime.now().strftime('%Y%m%d-%H%M%S%f')}"  # 微秒防同秒碰撞（终审 I3）
         state = {
             "session_id": session_id,
             "status": "PARSING",
@@ -298,12 +298,14 @@ class WsSessionHandler:
         state = self.session_store.load(session_id)
         if state is None:
             raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        seq = self.next_seq(session_id)
         return [
             self._msg(
                 "session_snapshot",
                 session_id,
-                {"state": mask_pii_dict(state), "seq": self.next_seq(session_id)},
+                {"state": mask_pii_dict(state), "seq": seq},
                 req_id=msg.req_id,
+                seq=seq,
             )
         ]
 
@@ -321,7 +323,8 @@ class WsSessionHandler:
         return []
 
     def _on_ping(self, msg: InboundMessage) -> List[OutboundMessage]:
-        return [self._msg("pong", "", {}, req_id=msg.req_id)]
+        # 携带 session_id 时沿该会话 seq 计数（终审 C1 测试要求快照后 seq 连续）
+        return [self._msg("pong", msg.session_id or "", {}, req_id=msg.req_id)]
 
     # ---- 状态→事件翻译 ----
 

@@ -70,11 +70,23 @@ class SessionStore:
         return [row["session_id"] for row in rows]
 
     def list_recent(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """最近会话（续传选择页）：非终态全量 + 最近终态。"""
+        """非终态全量 + 最近终态（续传选择页，spec 3.5.2）。"""
+        terminal = ("DELIVERED", "FAILED", "ABANDONED", "ARCHIVED")
+        placeholders = ",".join("?" for _ in terminal)
         with closing(self._connect()) as conn:
             rows = conn.execute(
-                "SELECT session_id, status, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?",
-                (limit,),
+                f"""
+                SELECT session_id, status, updated_at FROM sessions
+                WHERE status NOT IN ({placeholders})
+                UNION ALL
+                SELECT session_id, status, updated_at FROM (
+                    SELECT session_id, status, updated_at FROM sessions
+                    WHERE status IN ({placeholders})
+                    ORDER BY updated_at DESC LIMIT ?
+                )
+                ORDER BY updated_at DESC LIMIT ?
+                """,
+                (*terminal, *terminal, 20, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 

@@ -7,7 +7,7 @@ from typing import List
 
 from ako_intake.config import IntakeSettings
 from ako_intake.models import Ako1WorkOrder, ClarificationLogEntry, IntentTree
-from ako_intake.utils.naming import draft_wo_number
+from ako_intake.utils.naming import unique_draft_wo_number
 
 DEFAULT_RULES: List[str] = ["不修改生产环境", "Git版本控制", "关键模块人工Review"]
 DEFAULT_PROHIBITIONS: List[str] = ["禁止直接修改生产数据库"]
@@ -37,7 +37,7 @@ def build_work_order(
     clarification_log: List[ClarificationLogEntry],
     settings: IntakeSettings,
     session_id: str,
-    seq: int = 1,
+    seq: int = 1,  # 终审 C2：仅保留签名兼容，工单号改由 unique_draft_wo_number 生成
 ) -> Ako1WorkOrder:
     """构建标准 ako1 工单。"""
     module = intent_tree.entity_value("module") or "AKO_hub_agent"
@@ -48,7 +48,7 @@ def build_work_order(
     deadline = _answer_value(clarification_log, "deadline") or f"{settings.default_deadline_minutes}分钟"
     deliverable = DELIVERABLE_BY_ACTION.get(action, "输出执行结果与报告")
     wo = Ako1WorkOrder(
-        wo_number=draft_wo_number(seq=seq),
+        wo_number=unique_draft_wo_number(),  # 终审 C2：当日唯一；seq 不再参与编号
         module=module,
         action=action,
         scope=scope,

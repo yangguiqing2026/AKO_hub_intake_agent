@@ -164,3 +164,16 @@ def test_wo_edit_bad_field_type_returns_invalid_payload(tmp_path: Path) -> None:
     out2 = _send(handler, {"v": 2, "type": "wo_edit", "session_id": session_id, "payload": {"draft_wo": {"rules": 123}}})
     assert out2[0]["type"] == "error"
     assert out2[0]["payload"]["code"] == "INVALID_PAYLOAD"
+
+
+def test_session_resume_seq_consistent(tmp_path: Path) -> None:
+    """快照 payload.seq 与信封 seq 一致，且下一条消息信封 seq 连续（终审 C1）。"""
+    handler = _handler(tmp_path)
+    _send(handler, AUTH)
+    out = _send(handler, INPUT)
+    session_id = [m for m in out if m["type"] == "wo_preview"][0]["session_id"]
+    out2 = _send(handler, {"v": 2, "type": "session_resume", "payload": {"session_id": session_id}})
+    snap = [m for m in out2 if m["type"] == "session_snapshot"][0]
+    assert snap["payload"]["seq"] == snap["seq"]
+    out3 = _send(handler, {"v": 2, "type": "ping", "session_id": session_id, "payload": {}})
+    assert out3[0]["seq"] == snap["seq"] + 1
