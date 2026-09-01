@@ -645,6 +645,10 @@ class WsSessionHandler:
             return handler(msg)
         except ProtocolError as exc:
             return [self._err(exc.code, exc.message, req_id)]
+        except ValidationError as exc:
+            return [self._err("INVALID_PAYLOAD", f"负载校验失败: {exc}", req_id)]
+        except Exception as exc:
+            return [self._err("INTERNAL", f"处理失败: {exc}", req_id)]
 
     # ---- 入站处理器 ----
 
@@ -707,7 +711,7 @@ class WsSessionHandler:
         state = self.session_store.load(session_id)
         if state is None:
             raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
-        merged = {**state.get("draft_work_order", {}), **msg.payload.draft_wo}
+        merged = {**(state.get("draft_work_order") or {}), **msg.payload.draft_wo}
         wo = Ako1WorkOrder.model_validate(merged)
         problems = validate_work_order(wo)
         if problems:
