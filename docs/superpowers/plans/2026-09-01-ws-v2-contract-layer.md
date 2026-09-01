@@ -1502,7 +1502,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-运行生成：`python scripts/export_contract_schemas.py`
+运行生成：`PYTHONPATH=. python scripts/export_contract_schemas.py`（repo 无打包，直接 `python scripts/...` 时 sys.path 无 repo 根，会 ModuleNotFoundError）
 Expected: 生成 `schemas/ws_message_v2.json` 与 `schemas/bootstrap_v1.json`
 
 - [ ] **Step 4: 运行测试确认通过**
