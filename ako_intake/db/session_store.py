@@ -69,6 +69,15 @@ class SessionStore:
             ).fetchall()
         return [row["session_id"] for row in rows]
 
+    def list_recent(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """最近会话（续传选择页）：非终态全量 + 最近终态。"""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT session_id, status, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def archive_expired(self, days: int = 7) -> int:
         """归档过期终态会话，返回归档数量。"""
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()

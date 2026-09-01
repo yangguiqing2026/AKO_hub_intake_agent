@@ -22,3 +22,22 @@ def verify_human(token: str, base_url: str = "", timeout: float = 10.0) -> Dict[
     except Exception as exc:
         return {"ok": False, "error": str(exc), "method": "http"}
 
+
+def login_human(account: str, fingerprint: str, base_url: str = "", timeout: float = 10.0) -> Dict[str, Any]:
+    """人类登录（A.5 第一重）。
+
+    base_url 为空时返回开发态令牌（仅非生产，设计 R3）。
+    """
+    if not base_url:
+        return {"ok": True, "token": "dev-token", "human_id": "mock-human", "method": "mock"}
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                f"{base_url.rstrip('/')}/login",
+                json={"account": account, "fingerprint": fingerprint},
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "method": "http"}
+

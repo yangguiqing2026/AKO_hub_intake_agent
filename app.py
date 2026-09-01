@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from ako_intake.adapters.ws_protocol import WsSessionHandler
+from ako_intake.adapters.ws_protocol import WsSessionHandler, bootstrap_payload
 from ako_intake.config import load_config
 from ako_intake.core.graph import compile_graph
+from ako_intake.core.pipeline import flush_queue
 from ako_intake.db.queue_store import QueueStore
 from ako_intake.db.session_store import SessionStore
+from ako_intake.gateways.hub_client import HubClient
+from ako_intake.gateways.identity_client import login_human, verify_human
 from ako_intake.gateways.monitor import health_payload, metrics_payload
 from ako_intake.llm.budget import BudgetTracker
+from ako_intake.models import Ako1WorkOrder
 from ako_intake.probes.health_probes import probe_all
+from ako_intake.services.form_builder import validate_work_order
 from ako_intake.services.observability import Metrics
+from ako_intake.services.reviewer import review_work_order
 from ako_intake.utils.logging import setup_logging
+from ako_intake.utils.naming import draft_wo_number
 
 setup_logging()
 config = load_config()
@@ -76,4 +84,107 @@ async def ws_intake(websocket: WebSocket) -> None:
                 await websocket.send_text(msg.model_dump_json(exclude_none=True))
     except WebSocketDisconnect:
         return
+
+
+class CreateSessionBody(BaseModel):
+    raw_text: Optional[str] = None
+    draft_wo: Optional[Dict[str, Any]] = None
+
+
+class IdentityLoginBody(BaseModel):
+    account: str
+    fingerprint: str
+
+
+class IdentityVerifyBody(BaseModel):
+    token: str
+
+
+@app.get("/api/v1/bootstrap")
+def bootstrap() -> Dict[str, Any]:
+    return bootstrap_payload(config, budget_tracker)
+
+
+@app.get("/api/v1/intake/sessions")
+def list_sessions() -> Dict[str, Any]:
+    return {"sessions": session_store.list_recent()}
+
+
+@app.post("/api/v1/intake/sessions")
+def create_session(body: CreateSessionBody) -> Dict[str, Any]:
+    session_id = f"sess-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    if body.draft_wo is not None:
+        draft = {**body.draft_wo}
+        # 工单号由系统生成（白皮书 US-003），用户无需填写
+        draft.setdefault("wo_number", draft_wo_number(seq=1))
+        wo = Ako1WorkOrder.model_validate(draft)
+        problems = validate_work_order(wo)
+        if problems:
+            raise HTTPException(status_code=400, detail="schema_error: " + "; ".join(problems))
+        record = review_work_order(wo, config.intake.review_score_threshold)
+        state = {
+            "session_id": session_id,
+            "status": "REVIEWING",
+            "raw_input": "[expert]",
+            "draft_work_order": wo.model_dump(),
+            "review_record": record.model_dump(),
+            "clarification_log": [],
+            "pending_answers": [],
+            "p0_rounds": 0,
+            "queue": "main",
+        }
+        session_store.save(session_id, "REVIEWING", state)
+        return {"session_id": session_id, "status": "REVIEWING", "review_record": record.model_dump()}
+    state = {
+        "session_id": session_id,
+        "status": "IDLE",
+        "raw_input": body.raw_text or "",
+        "clarification_log": [],
+        "pending_answers": [],
+        "p0_rounds": 0,
+        "queue": "main",
+    }
+    session_store.save(session_id, "IDLE", state)
+    return {"session_id": session_id, "status": "IDLE"}
+
+
+@app.post("/api/v1/intake/sessions/{session_id}/abandon")
+def abandon_session(session_id: str) -> Dict[str, Any]:
+    state = session_store.load(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    state["status"] = "ABANDONED"
+    session_store.save(session_id, "ABANDONED", state)
+    return {"session_id": session_id, "status": "ABANDONED"}
+
+
+@app.get("/api/v1/intake/queue/stats")
+def queue_stats() -> Dict[str, Any]:
+    stats = queue_store.stats()
+    # 空队列时 stats() 无对应分组，端点契约固定返回 {pending, done, failed}
+    return {
+        "pending": stats.get("pending", 0),
+        "done": stats.get("done", 0),
+        "failed": stats.get("failed", 0),
+    }
+
+
+@app.post("/api/v1/intake/queue/flush")
+def queue_flush() -> Dict[str, Any]:
+    hub = HubClient(config.gateways.hub_base_url)
+    flushed = flush_queue(queue_store, hub, config)
+    return {"flushed": flushed}
+
+
+@app.post("/api/v1/identity/login")
+def identity_login(body: IdentityLoginBody) -> Dict[str, Any]:
+    result = login_human(body.account, body.fingerprint, config.gateways.identity_base_url)
+    if not result.get("ok"):
+        raise HTTPException(status_code=401, detail=str(result.get("error", "login failed")))
+    return {"token": result["token"], "expires_at": result.get("expires_at", ""), "identity": {"account": body.account}}
+
+
+@app.post("/api/v1/identity/verify")
+def identity_verify(body: IdentityVerifyBody) -> Dict[str, Any]:
+    return verify_human(body.token, config.gateways.identity_base_url)
 

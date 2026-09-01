@@ -58,3 +58,64 @@ def test_ws_v2_roundtrip() -> None:
         assert "DELIVERED" in statuses
         assert "wo_preview" in types
 
+
+def test_bootstrap_shape() -> None:
+    response = client.get("/api/v1/bootstrap")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["agent_id"] == "AKO_hub_intake_agent"
+    assert body["ws"]["auth_timeout_seconds"] > 0
+    assert "terms" in body
+
+
+def test_sessions_list_and_create() -> None:
+    created = client.post("/api/v1/intake/sessions", json={})
+    assert created.status_code == 200
+    session_id = created.json()["session_id"]
+    listing = client.get("/api/v1/intake/sessions")
+    assert listing.status_code == 200
+    assert any(s["session_id"] == session_id for s in listing.json()["sessions"])
+
+
+def test_create_session_expert_mode() -> None:
+    draft = {
+        "module": "AKO_quote_agent", "action": "审计", "scope": "只动报价校验",
+        "rules": ["不修改生产环境"], "prohibitions": ["禁止直接修改生产数据库"],
+        "deliverable": "输出审计报告", "deadline": "90分钟",
+    }
+    response = client.post("/api/v1/intake/sessions", json={"draft_wo": draft})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "REVIEWING"
+    assert body["review_record"]["structural_passed"] is True
+
+
+def test_abandon_session() -> None:
+    created = client.post("/api/v1/intake/sessions", json={}).json()
+    response = client.post(f"/api/v1/intake/sessions/{created['session_id']}/abandon")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ABANDONED"
+    missing = client.post("/api/v1/intake/sessions/nope/abandon")
+    assert missing.status_code == 404
+
+
+def test_queue_stats_and_flush() -> None:
+    stats = client.get("/api/v1/intake/queue/stats")
+    assert stats.status_code == 200
+    assert "pending" in stats.json()
+    flushed = client.post("/api/v1/intake/queue/flush")
+    assert flushed.status_code == 200
+    assert "flushed" in flushed.json()
+
+
+def test_identity_login_dev_mode() -> None:
+    response = client.post("/api/v1/identity/login", json={"account": "a", "fingerprint": "123456"})
+    assert response.status_code == 200
+    assert response.json()["token"] == "dev-token"
+
+
+def test_identity_verify_dev_mode() -> None:
+    response = client.post("/api/v1/identity/verify", json={"token": "dev-token"})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
