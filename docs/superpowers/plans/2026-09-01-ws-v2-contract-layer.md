@@ -402,20 +402,20 @@ def test_intake_input_flow_to_delivered(tmp_path: Path) -> None:
 def test_clarifying_then_answer_flow(tmp_path: Path) -> None:
     handler = _handler(tmp_path)
     _send(handler, AUTH)
-    out = _send(handler, {"v": 2, "type": "intake_input", "payload": {"text": "看看报价模块的数据"}})
+    out = _send(handler, {"v": 2, "type": "intake_input", "payload": {"text": "帮我看看报价模块的数据"}})
     inter = [m for m in out if m["type"] == "p0_interrogation"]
     assert inter, "应触发 P0 反问"
     session_id = inter[0]["session_id"]
     questions = inter[0]["payload"]["questions"]
     answers = [{"qid": q["qid"], "value": "审计" if q["field"] == "action" else "全局审计，不动数据"} for q in questions]
     out2 = _send(handler, {"v": 2, "type": "p0_response", "session_id": session_id, "payload": {"round": 1, "answers": answers}})
-    assert [m["type"] for m in out2 if m["type"] == "status"][-1]["payload"]["status"] == "DELIVERED"
+    assert [m for m in out2 if m["type"] == "status"][-1]["payload"]["status"] == "DELIVERED"
 
 
 def test_conservative_response_to_manual_review(tmp_path: Path) -> None:
     handler = _handler(tmp_path)
     _send(handler, AUTH)
-    out = _send(handler, {"v": 2, "type": "intake_input", "payload": {"text": "看看报价模块的数据"}})
+    out = _send(handler, {"v": 2, "type": "intake_input", "payload": {"text": "帮我看看报价模块的数据"}})
     inter = [m for m in out if m["type"] == "p0_interrogation"][0]
     out2 = _send(handler, {"v": 2, "type": "p0_response", "session_id": inter["session_id"], "payload": {"round": 1, "answers": [], "conservative": True}})
     assert [m for m in out2 if m["type"] == "manual_review"], "保守策略应入人工审核"
@@ -459,7 +459,8 @@ def test_seq_monotonic_per_session(tmp_path: Path) -> None:
     out2 = _send(handler, INPUT)
     seqs = [m["seq"] for m in out2]
     assert hello_seq == 1
-    assert seqs == list(range(2, 2 + len(seqs)))
+    # 按会话单调递增、从 1 起（设计 3.3）；hello 属 "" 会话计数器，新会话独立从 1 开始
+    assert seqs == list(range(1, 1 + len(seqs)))
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -496,6 +497,7 @@ from ako_intake.gateways.identity_client import verify_human
 from ako_intake.gateways.registry_client import verify_target
 from ako_intake.models import (
     Ako1WorkOrder,
+    Answer,
     BootstrapConfig,
     InboundMessage,
     OutboundMessage,
@@ -694,7 +696,8 @@ class WsSessionHandler:
             state["pending_answers"] = []
             state["p0_rounds"] = self.config.intake.max_p0_rounds
         else:
-            state["pending_answers"] = [a.model_dump() for a in msg.payload.answers]
+            # graph.interrogate_node → apply_answers 需要 Answer 实例（非 dict）
+            state["pending_answers"] = [Answer.model_validate(a.model_dump()) for a in msg.payload.answers]
         result = self.graph.invoke(state)
         self.session_store.save(session_id, str(result.get("status", "UNKNOWN")), result)
         return self._events_from_state(result, msg.req_id)
