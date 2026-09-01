@@ -1552,3 +1552,266 @@ git commit -m "docs(intake): API 文档更新为 WS v2 契约"
 - **偏差说明**：设计 3.2.2 中 `hello.snapshot`（"仅在存在可续传会话时携带"）因连接阶段无 session_id 无法确定会话，改为统一走 `session_resume` → `session_snapshot` 通道（设计自身已定义该通道）；`wo_discard` 语义按设计"放弃当前工单"实现为清空草稿回 IDLE（`session_abandon` 才到 S90）。
 - **占位符扫描**：无 TBD/TODO；每个代码步骤均含完整实现。
 - **类型一致性**：`WsSessionHandler._msg/next_seq/handle_text` 签名在 Task 2 定义、Task 3 使用一致；`bootstrap_payload` 在 Task 2 定义、Task 4 使用一致；`InboundMessage`/`BootstrapConfig` 在 Task 1 定义、Task 7 使用一致。
+
+---
+
+## 终审修复波（final review fix wave，2026-09-01）
+
+全分支终审（opus）发现 2 Critical + 5 Important，本波一次性修复（单次修复提交，含测试）：
+
+### FW-1 [C1] session_resume 双 seq 消耗 → 快照协议永不收敛
+
+`_on_session_resume` 中 `_msg` 的 payload 字面量先 `self.next_seq(session_id)`（N），`_msg` 体内再 `next_seq`（N+1）→ payload.seq 与信封 seq 恒差 1，客户端按设计 3.3 镜像规则判 gap → 无限循环。
+
+修复（`ako_intake/adapters/ws_protocol.py`）：
+
+```python
+    def _msg(self, type_: str, session_id: str, payload: Optional[Dict[str, Any]] = None, req_id: str = "", seq: Optional[int] = None) -> OutboundMessage:
+        return OutboundMessage(
+            type=type_,
+            req_id=req_id,
+            session_id=session_id,
+            seq=self.next_seq(session_id) if seq is None else seq,
+            ts=datetime.now().isoformat(),
+            payload=payload or {},
+        )
+
+    def _on_session_resume(self, msg: InboundMessage) -> List[OutboundMessage]:
+        session_id = msg.payload.session_id
+        state = self.session_store.load(session_id)
+        if state is None:
+            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        seq = self.next_seq(session_id)
+        return [
+            self._msg(
+                "session_snapshot",
+                session_id,
+                {"state": mask_pii_dict(state), "seq": seq},
+                req_id=msg.req_id,
+                seq=seq,
+            )
+        ]
+```
+
+新增测试（`tests/test_ws_protocol.py`）：
+
+```python
+def test_session_resume_seq_consistent(tmp_path: Path) -> None:
+    """快照 payload.seq 与信封 seq 一致，且下一条消息信封 seq 连续（终审 C1）。"""
+    handler = _handler(tmp_path)
+    _send(handler, AUTH)
+    out = _send(handler, INPUT)
+    session_id = [m for m in out if m["type"] == "wo_preview"][0]["session_id"]
+    out2 = _send(handler, {"v": 2, "type": "session_resume", "payload": {"session_id": session_id}})
+    snap = [m for m in out2 if m["type"] == "session_snapshot"][0]
+    assert snap["payload"]["seq"] == snap["seq"]
+    out3 = _send(handler, {"v": 2, "type": "ping", "session_id": session_id, "payload": {}})
+    assert out3[0]["seq"] == snap["seq"] + 1
+```
+
+### FW-2 [C2] 草稿工单号同日碰撞 → 静默丢单
+
+`draft_wo_number(seq=1)`（专家模式 app.py）与 `build_work_order` 的 `seq=p0_rounds+1`（NL 链路，无歧义时=1）同日多会话生成相同 `WO-DRAFT-{day}-001`；hub allocate/deliver 以 draft_wo_number 为幂等键、本地队列以 wo_number 为 PRIMARY KEY（ON CONFLICT 覆盖）→ 第二个工单静默丢失（违 AC-07 零丢失）。
+
+修复（`ako_intake/utils/naming.py` 新增当日唯一编号）：
+
+```python
+def unique_draft_wo_number() -> str:
+    """生成当日唯一的草稿工单号（seq 取当日毫秒级时间戳，跨路径防碰撞，终审 C2）。
+
+    draft_wo_number(seq) 的调用方传入 p0_rounds+1 等非唯一值，同日多会话会
+    生成相同编号，破坏 Hub 幂等键与本地队列主键。
+    """
+    from datetime import datetime
+
+    now = datetime.now()
+    seq = int(now.strftime("%H%M%S")) * 1000 + now.microsecond // 1000
+    return f"WO-DRAFT-{now.strftime('%Y%m%d')}-{seq:09d}"
+```
+
+- `app.py` 专家模式：`draft.setdefault("wo_number", unique_draft_wo_number())`（import 从 naming 改引 unique_draft_wo_number）。
+- `ako_intake/services/form_builder.py`：`wo_number=unique_draft_wo_number()`（import 改引；`seq` 参数保留签名但不再用于编号，加注释说明）。
+
+新增测试：
+
+```python
+# tests/test_naming.py（新建）
+"""命名铁律与唯一编号测试。"""
+from __future__ import annotations
+
+from ako_intake.utils.naming import unique_draft_wo_number, validate_wo_number
+
+
+def test_unique_draft_wo_number_matches_pattern() -> None:
+    assert validate_wo_number(unique_draft_wo_number())
+
+
+def test_unique_draft_wo_number_differs_across_calls() -> None:
+    assert unique_draft_wo_number() != unique_draft_wo_number()
+
+
+# tests/test_app.py
+def test_expert_mode_draft_numbers_unique() -> None:
+    """同日两次专家创建 → 草稿工单号不同（终审 C2）。"""
+    draft = {
+        "module": "AKO_quote_agent", "action": "审计", "scope": "只动报价校验",
+        "rules": ["不修改生产环境"], "prohibitions": ["禁止直接修改生产数据库"],
+        "deliverable": "输出审计报告", "deadline": "90分钟",
+    }
+    a = client.post("/api/v1/intake/sessions", json={"draft_wo": draft}).json()
+    b = client.post("/api/v1/intake/sessions", json={"draft_wo": draft}).json()
+    wa = client.get(f"/api/v1/intake/sessions/{a['session_id']}").json()["draft_work_order"]["wo_number"]
+    wb = client.get(f"/api/v1/intake/sessions/{b['session_id']}").json()["draft_work_order"]["wo_number"]
+    assert wa != wb
+```
+
+### FW-3 [I1] REST 无 Bearer 门禁（spec 3.6）
+
+修复（`app.py`）：
+
+```python
+from fastapi import Depends, Header
+
+
+def require_auth(authorization: str = Header(default="")) -> None:
+    """REST Bearer 门禁（spec 3.6）；identity 未配置时开发态放行（R3）。"""
+    if not config.gateways.identity_base_url:
+        return
+    token = authorization.removeprefix("Bearer ").strip() if authorization.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="AUTH_REQUIRED")
+    result = verify_human(token, config.gateways.identity_base_url)
+    if not result.get("ok"):
+        raise HTTPException(status_code=401, detail="AUTH_REQUIRED")
+```
+
+应用到：`GET /metrics`、`GET /api/v1/bootstrap`、`GET /api/v1/intake/sessions`、`POST /api/v1/intake/sessions`、`GET /api/v1/intake/sessions/{id}`、`POST /api/v1/intake/sessions/{id}/abandon`、`GET /api/v1/intake/queue/stats`、`POST /api/v1/intake/queue/flush`（`dependencies=[Depends(require_auth)]`）。**不应用**：`/health`（guardian 探测）、`/api/v1/identity/login`、`/api/v1/identity/verify`（认证入口自身）。
+
+新增测试（`tests/test_app.py`）：
+
+```python
+def test_rest_auth_dev_mode_passthrough() -> None:
+    """identity 未配置（开发态）→ 无 Authorization 头仍放行。"""
+    assert client.get("/metrics").status_code == 200
+
+
+def test_rest_auth_blocks_when_identity_configured(monkeypatch) -> None:
+    """identity 已配置且不可达 → 401。"""
+    monkeypatch.setattr(config, "gateways", type(config.gateways)(identity_base_url="http://127.0.0.1:9", registry_base_url="", hub_base_url=""))
+    response = client.get("/metrics")
+    assert response.status_code == 401
+```
+
+（`app` 模块的 `config` 需 `import app as app_module` 或直接 `monkeypatch.setattr("app.config.gateways", ...)`——按实际模块引用方式调整；测试后恢复。）
+
+### FW-4 [I2] POST /sessions raw_text 未走自然语言链路
+
+修复（`app.py`，`from ako_intake.core.pipeline import run_full`）：
+
+```python
+    if body.raw_text:
+        state = run_full(body.raw_text, session_id, config)
+        session_store.save(session_id, str(state.get("status", "UNKNOWN")), state)
+        return {"session_id": session_id, "status": state.get("status")}
+```
+
+（放在 expert 分支之后、IDLE 空建分支之前。）
+
+新增测试：
+
+```python
+def test_create_session_raw_text_runs_pipeline() -> None:
+    """raw_text 走自然语言链路（spec 3.5.2，终审 I2）。"""
+    response = client.post("/api/v1/intake/sessions", json={"raw_text": "修复报价模块的bug，只动校验逻辑，不动数据库"})
+    assert response.status_code == 200
+    assert response.json()["status"] in ("DELIVERED", "CLARIFYING", "MANUAL_REVIEW", "FORM_BUILDING")
+```
+
+### FW-5 [I3] 会话 ID 秒级碰撞
+
+`ws_protocol.py:197` 与 `app.py` 创建会话处 `strftime('%Y%m%d-%H%M%S')` 改 `%Y%m%d-%H%M%S%f`（微秒）。
+
+### FW-6 [I4] list_recent 与 spec 3.5.2 不符
+
+修复（`ako_intake/db/session_store.py`）：非终态全量 + 最近终态 UNION：
+
+```python
+    def list_recent(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """非终态全量 + 最近终态（续传选择页，spec 3.5.2）。"""
+        terminal = ("DELIVERED", "FAILED", "ABANDONED", "ARCHIVED")
+        placeholders = ",".join("?" for _ in terminal)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT session_id, status, updated_at FROM sessions
+                WHERE status NOT IN ({placeholders})
+                UNION ALL
+                SELECT session_id, status, updated_at FROM (
+                    SELECT session_id, status, updated_at FROM sessions
+                    WHERE status IN ({placeholders})
+                    ORDER BY updated_at DESC LIMIT ?
+                )
+                ORDER BY updated_at DESC LIMIT ?
+                """,
+                (*terminal, 20, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+```
+
+（terminal 元组与 `list_non_terminal` 保持一致。）
+
+### FW-7 [I5] auth 超时未强制
+
+修复（`app.py`，`import asyncio` 与 `import json`）：
+
+```python
+@app.websocket("/ws/intake")
+async def ws_intake(websocket: WebSocket) -> None:
+    await websocket.accept()
+    handler = WsSessionHandler(config, session_store, queue_store, _graph, metrics, budget_tracker)
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=config.ws.auth_timeout_seconds)
+        for msg in handler.handle_text(raw):
+            await websocket.send_text(msg.model_dump_json(exclude_none=True))
+        while True:
+            raw = await websocket.receive_text()
+            for msg in handler.handle_text(raw):
+                await websocket.send_text(msg.model_dump_json(exclude_none=True))
+    except WebSocketDisconnect:
+        return
+    except asyncio.TimeoutError:
+        await websocket.send_text(
+            json.dumps({"v": 2, "type": "error", "payload": {"code": "AUTH_REQUIRED", "message": "auth 超时"}}, ensure_ascii=False)
+        )
+        await websocket.close()
+        return
+```
+
+（注意：`json` import 需加回 app.py。）
+
+新增测试（`tests/test_app.py`，monkeypatch 缩短超时）：
+
+```python
+def test_ws_auth_timeout_closes(monkeypatch) -> None:
+    """连接后未发 auth → 超时关闭（spec 3.2.1，终审 I5）。"""
+    monkeypatch.setattr(config, "ws", type(config.ws)(heartbeat_seconds=30, stream_ack_bytes=16384, auth_timeout_seconds=0.05))
+    with client.websocket_connect("/ws/intake") as websocket:
+        data = websocket.receive_json()
+        assert data["type"] == "error"
+        assert data["payload"]["code"] == "AUTH_REQUIRED"
+```
+
+（若 TestClient 时序下 receive 抛 WebSocketDisconnect，断言改为捕获断开；以实测为准并记录。）
+
+### FW-8 文档与测试补记（终审 triage 指定的低成本项）
+
+- `docs/API.md`：① Registry 行补"（仅 registry 已配置时）"；② wo_confirm 段落注明"registry 拦截分支无前置 status 事件（Phase B 前端须知）"；③ p0_timeout/soft_break 行注明"Phase A 仅契约预留，Phase D 实现"。
+- `tests/test_contract_schemas.py` 失败提示：`请运行 PYTHONPATH=. python scripts/export_contract_schemas.py`。
+- `tests/test_config.py` 补显式值断言：`assert config.ws.heartbeat_seconds == 30 and config.ws.stream_ack_bytes == 16384 and config.ws.auth_timeout_seconds == 10`。
+- `config/intake_config.yaml` 端口注释勘误：改为"与白皮书 6.6 / docs/API.md 一致（设计附录 B）"，删除"修正原 5027"（worktree 基线已是 5026）。
+
+### FW 验证
+
+全量回归：`python -m pytest -q`（预期 90 + 新增全部通过；1 个既有 StarletteDeprecationWarning）。
+
+提交信息：`fix(intake): 终审修复波（seq 快照收敛/草稿号唯一/REST 门禁/raw_text 链路/会话 ID/会话列表契约/auth 超时）`
