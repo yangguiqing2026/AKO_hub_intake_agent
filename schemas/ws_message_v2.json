@@ -1,0 +1,515 @@
+{
+  "$defs": {
+    "AnswerItem": {
+      "properties": {
+        "qid": {
+          "title": "Qid",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "qid",
+        "value"
+      ],
+      "title": "AnswerItem",
+      "type": "object"
+    },
+    "AuthMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "auth",
+          "default": "auth",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AuthPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "AuthMessage",
+      "type": "object"
+    },
+    "AuthPayload": {
+      "properties": {
+        "token": {
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "title": "AuthPayload",
+      "type": "object"
+    },
+    "EmptyPayload": {
+      "properties": {},
+      "title": "EmptyPayload",
+      "type": "object"
+    },
+    "IntakeInputMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "intake_input",
+          "default": "intake_input",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/IntakeInputPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "IntakeInputMessage",
+      "type": "object"
+    },
+    "IntakeInputPayload": {
+      "properties": {
+        "text": {
+          "maxLength": 2000,
+          "minLength": 10,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "IntakeInputPayload",
+      "type": "object"
+    },
+    "P0ResponseMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "p0_response",
+          "default": "p0_response",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/P0ResponsePayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "P0ResponseMessage",
+      "type": "object"
+    },
+    "P0ResponsePayload": {
+      "properties": {
+        "round": {
+          "minimum": 1,
+          "title": "Round",
+          "type": "integer"
+        },
+        "answers": {
+          "items": {
+            "$ref": "#/$defs/AnswerItem"
+          },
+          "title": "Answers",
+          "type": "array"
+        },
+        "conservative": {
+          "default": false,
+          "title": "Conservative",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "round"
+      ],
+      "title": "P0ResponsePayload",
+      "type": "object"
+    },
+    "PingMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "ping",
+          "default": "ping",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "PingMessage",
+      "type": "object"
+    },
+    "SessionAbandonMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "session_abandon",
+          "default": "session_abandon",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "SessionAbandonMessage",
+      "type": "object"
+    },
+    "SessionResumeMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "session_resume",
+          "default": "session_resume",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SessionResumePayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "SessionResumeMessage",
+      "type": "object"
+    },
+    "SessionResumePayload": {
+      "properties": {
+        "session_id": {
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "title": "SessionResumePayload",
+      "type": "object"
+    },
+    "StreamAckMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "stream_ack",
+          "default": "stream_ack",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/StreamAckPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "StreamAckMessage",
+      "type": "object"
+    },
+    "StreamAckPayload": {
+      "properties": {
+        "stream_id": {
+          "title": "Stream Id",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream_id",
+        "bytes"
+      ],
+      "title": "StreamAckPayload",
+      "type": "object"
+    },
+    "WoConfirmMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "wo_confirm",
+          "default": "wo_confirm",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "WoConfirmMessage",
+      "type": "object"
+    },
+    "WoDiscardMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "wo_discard",
+          "default": "wo_discard",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "WoDiscardMessage",
+      "type": "object"
+    },
+    "WoEditMessage": {
+      "properties": {
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "req_id": {
+          "default": "",
+          "title": "Req Id",
+          "type": "string"
+        },
+        "session_id": {
+          "default": "",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "wo_edit",
+          "default": "wo_edit",
+          "title": "Type",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/WoEditPayload"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "title": "WoEditMessage",
+      "type": "object"
+    },
+    "WoEditPayload": {
+      "properties": {
+        "draft_wo": {
+          "additionalProperties": true,
+          "title": "Draft Wo",
+          "type": "object"
+        }
+      },
+      "title": "WoEditPayload",
+      "type": "object"
+    }
+  },
+  "description": "入站消息判别联合。\n\nPydantic v2 中裸 ``Annotated[Union[...], Field(discriminator=...)]`` 别名\n无模型方法（GH #10409），以 RootModel 包装获得 ``model_validate`` /\n``model_json_schema``；``__getattr__`` 委托使 ``msg.type`` /\n``msg.payload`` 等直接可访问。",
+  "discriminator": {
+    "mapping": {
+      "auth": "#/$defs/AuthMessage",
+      "intake_input": "#/$defs/IntakeInputMessage",
+      "p0_response": "#/$defs/P0ResponseMessage",
+      "ping": "#/$defs/PingMessage",
+      "session_abandon": "#/$defs/SessionAbandonMessage",
+      "session_resume": "#/$defs/SessionResumeMessage",
+      "stream_ack": "#/$defs/StreamAckMessage",
+      "wo_confirm": "#/$defs/WoConfirmMessage",
+      "wo_discard": "#/$defs/WoDiscardMessage",
+      "wo_edit": "#/$defs/WoEditMessage"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AuthMessage"
+    },
+    {
+      "$ref": "#/$defs/IntakeInputMessage"
+    },
+    {
+      "$ref": "#/$defs/P0ResponseMessage"
+    },
+    {
+      "$ref": "#/$defs/WoEditMessage"
+    },
+    {
+      "$ref": "#/$defs/WoConfirmMessage"
+    },
+    {
+      "$ref": "#/$defs/WoDiscardMessage"
+    },
+    {
+      "$ref": "#/$defs/SessionResumeMessage"
+    },
+    {
+      "$ref": "#/$defs/SessionAbandonMessage"
+    },
+    {
+      "$ref": "#/$defs/StreamAckMessage"
+    },
+    {
+      "$ref": "#/$defs/PingMessage"
+    }
+  ],
+  "title": "InboundMessage"
+}

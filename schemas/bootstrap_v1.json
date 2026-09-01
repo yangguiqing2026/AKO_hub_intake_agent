@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "TermBrief": {
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "module": {
+          "title": "Module",
+          "type": "string"
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "term",
+        "module"
+      ],
+      "title": "TermBrief",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "agent_id": {
+      "default": "",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "version": {
+      "default": "0.1.0",
+      "title": "Version",
+      "type": "string"
+    },
+    "terms": {
+      "items": {
+        "$ref": "#/$defs/TermBrief"
+      },
+      "title": "Terms",
+      "type": "array"
+    },
+    "intake": {
+      "additionalProperties": true,
+      "title": "Intake",
+      "type": "object"
+    },
+    "budget": {
+      "additionalProperties": true,
+      "title": "Budget",
+      "type": "object"
+    },
+    "llm": {
+      "additionalProperties": true,
+      "title": "Llm",
+      "type": "object"
+    },
+    "knowledge_enabled": {
+      "default": false,
+      "title": "Knowledge Enabled",
+      "type": "boolean"
+    },
+    "identity_required": {
+      "default": false,
+      "title": "Identity Required",
+      "type": "boolean"
+    },
+    "ws": {
+      "additionalProperties": true,
+      "title": "Ws",
+      "type": "object"
+    },
+    "observability": {
+      "additionalProperties": true,
+      "title": "Observability",
+      "type": "object"
+    }
+  },
+  "title": "BootstrapConfig",
+  "type": "object"
+}
