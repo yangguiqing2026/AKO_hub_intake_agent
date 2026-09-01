@@ -1227,7 +1227,9 @@ def abandon_session(session_id: str) -> Dict[str, Any]:
 
 @app.get("/api/v1/intake/queue/stats")
 def queue_stats() -> Dict[str, Any]:
-    return queue_store.stats()
+    # 空队时 stats() 返回 {}，规范化为三键零值（设计 3.5.2 {pending, done, failed}）
+    raw = queue_store.stats()
+    return {"pending": raw.get("pending", 0), "done": raw.get("done", 0), "failed": raw.get("failed", 0)}
 
 
 @app.post("/api/v1/intake/queue/flush")
