@@ -962,12 +962,14 @@ def test_ws_v2_roundtrip() -> None:
         for _ in range(8):
             data = websocket.receive_json()
             types.append(str(data["type"]))
+            # 事件序：status(PARSING) → status(DELIVERED) → wo_preview → review_result；
+            # 须等到 wo_preview 再断言（DELIVERED status 先于其到达）
+            if data["type"] == "wo_preview":
+                break
             if data["type"] == "status":
                 statuses.append(str(data["payload"]["status"]))
-                if statuses[-1] == "DELIVERED":
-                    break
-        assert "DELIVERED" in statuses
         assert "wo_preview" in types
+        assert "DELIVERED" in statuses
 ```
 
 删除旧 `test_ws_intake_roundtrip`。
@@ -1004,7 +1006,7 @@ async def ws_intake(websocket: WebSocket) -> None:
         return
 ```
 
-删除旧端点体内 `intake_input`/`p0_response` 逻辑（v2 处理器接管）。`json`/`WebSocketDisconnect` 仍被使用，保留 import。
+删除旧端点体内 `intake_input`/`p0_response` 逻辑（v2 处理器接管）。`WebSocketDisconnect` 仍被使用，保留 import；`json` 仅旧端点使用，新端点不再使用，应移除未用 import。
 
 - [ ] **Step 4: 运行测试确认通过**
 
