@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 
 
 class IntakeInput(BaseModel):
@@ -143,4 +143,159 @@ class RegistryVerifyResult(BaseModel):
     deployable: bool = False
     trust_boundary_ok: bool = False
     reasons: List[str] = Field(default_factory=list)
+
+
+class WSEnvelopeMixin(BaseModel):
+    """WS v2 信封公共字段（除 type/payload 外）。"""
+
+    v: Literal[2] = 2
+    req_id: str = ""
+    session_id: str = ""
+
+
+class AuthPayload(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class IntakeInputPayload(BaseModel):
+    text: str = Field(min_length=10, max_length=2000)
+
+
+class AnswerItem(BaseModel):
+    qid: str
+    value: str
+
+
+class P0ResponsePayload(BaseModel):
+    round: int = Field(ge=1)
+    answers: List[AnswerItem] = Field(default_factory=list)
+    conservative: bool = False
+
+
+class WoEditPayload(BaseModel):
+    draft_wo: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionResumePayload(BaseModel):
+    session_id: str = Field(min_length=1)
+
+
+class StreamAckPayload(BaseModel):
+    stream_id: str
+    bytes: int = Field(ge=0)
+
+
+class EmptyPayload(BaseModel):
+    pass
+
+
+class AuthMessage(WSEnvelopeMixin):
+    type: Literal["auth"] = "auth"
+    payload: AuthPayload
+
+
+class IntakeInputMessage(WSEnvelopeMixin):
+    type: Literal["intake_input"] = "intake_input"
+    payload: IntakeInputPayload
+
+
+class P0ResponseMessage(WSEnvelopeMixin):
+    type: Literal["p0_response"] = "p0_response"
+    payload: P0ResponsePayload
+
+
+class WoEditMessage(WSEnvelopeMixin):
+    type: Literal["wo_edit"] = "wo_edit"
+    payload: WoEditPayload
+
+
+class WoConfirmMessage(WSEnvelopeMixin):
+    type: Literal["wo_confirm"] = "wo_confirm"
+    payload: EmptyPayload
+
+
+class WoDiscardMessage(WSEnvelopeMixin):
+    type: Literal["wo_discard"] = "wo_discard"
+    payload: EmptyPayload
+
+
+class SessionResumeMessage(WSEnvelopeMixin):
+    type: Literal["session_resume"] = "session_resume"
+    payload: SessionResumePayload
+
+
+class SessionAbandonMessage(WSEnvelopeMixin):
+    type: Literal["session_abandon"] = "session_abandon"
+    payload: EmptyPayload
+
+
+class StreamAckMessage(WSEnvelopeMixin):
+    type: Literal["stream_ack"] = "stream_ack"
+    payload: StreamAckPayload
+
+
+class PingMessage(WSEnvelopeMixin):
+    type: Literal["ping"] = "ping"
+    payload: EmptyPayload
+
+
+class InboundMessage(RootModel[Annotated[Union[
+    AuthMessage,
+    IntakeInputMessage,
+    P0ResponseMessage,
+    WoEditMessage,
+    WoConfirmMessage,
+    WoDiscardMessage,
+    SessionResumeMessage,
+    SessionAbandonMessage,
+    StreamAckMessage,
+    PingMessage,
+], Field(discriminator="type")]]):
+    """入站消息判别联合。
+
+    Pydantic v2 中裸 ``Annotated[Union[...], Field(discriminator=...)]`` 别名
+    无模型方法（GH #10409），以 RootModel 包装获得 ``model_validate`` /
+    ``model_json_schema``；``__getattr__`` 委托使 ``msg.type`` /
+    ``msg.payload`` 等直接可访问。
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        """委托到 .root，保持消息字段直接访问语义。"""
+        return getattr(self.root, name)
+
+
+class ErrorPayload(BaseModel):
+    code: str
+    message: str
+
+
+class OutboundMessage(BaseModel):
+    """WS v2 出站信封。seq/ts 由协议处理器填充。"""
+
+    v: int = 2
+    type: str
+    req_id: str = ""
+    session_id: str = ""
+    seq: int = 0
+    ts: str = ""
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TermBrief(BaseModel):
+    term: str
+    module: str
+    actions: List[str] = Field(default_factory=list)
+
+
+class BootstrapConfig(BaseModel):
+    agent_id: str = ""
+    version: str = "0.1.0"
+    terms: List[TermBrief] = Field(default_factory=list)
+    intake: Dict[str, Any] = Field(default_factory=dict)
+    budget: Dict[str, Any] = Field(default_factory=dict)
+    llm: Dict[str, Any] = Field(default_factory=dict)
+    knowledge_enabled: bool = False
+    identity_required: bool = False
+    ws: Dict[str, Any] = Field(default_factory=dict)
+    observability: Dict[str, Any] = Field(default_factory=dict)
 
