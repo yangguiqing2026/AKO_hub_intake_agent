@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ako_intake.adapters.ws_protocol import WsSessionHandler, bootstrap_payload
 from ako_intake.config import load_config
@@ -117,7 +117,11 @@ def create_session(body: CreateSessionBody) -> Dict[str, Any]:
         draft = {**body.draft_wo}
         # 工单号由系统生成（白皮书 US-003），用户无需填写
         draft.setdefault("wo_number", draft_wo_number(seq=1))
-        wo = Ako1WorkOrder.model_validate(draft)
+        try:
+            wo = Ako1WorkOrder.model_validate(draft)
+        except ValidationError as exc:
+            # 缺必填字段（非空值）→ 400 schema_error（设计 7.5，白皮书 S80 schema_error）
+            raise HTTPException(status_code=400, detail=f"schema_error: {exc}")
         problems = validate_work_order(wo)
         if problems:
             raise HTTPException(status_code=400, detail="schema_error: " + "; ".join(problems))

@@ -90,6 +90,13 @@ def test_create_session_expert_mode() -> None:
     assert body["review_record"]["structural_passed"] is True
 
 
+def test_create_session_expert_mode_missing_fields_400() -> None:
+    """专家模式 draft 缺必填字段 → 400 schema_error（修复轮 1 覆盖）。"""
+    response = client.post("/api/v1/intake/sessions", json={"draft_wo": {"action": "审计"}})
+    assert response.status_code == 400
+    assert "schema_error" in response.json()["detail"]
+
+
 def test_abandon_session() -> None:
     created = client.post("/api/v1/intake/sessions", json={}).json()
     response = client.post(f"/api/v1/intake/sessions/{created['session_id']}/abandon")
