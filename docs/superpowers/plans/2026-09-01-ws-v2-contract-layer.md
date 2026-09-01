@@ -1141,7 +1141,10 @@ def list_sessions() -> Dict[str, Any]:
 def create_session(body: CreateSessionBody) -> Dict[str, Any]:
     session_id = f"sess-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     if body.draft_wo is not None:
-        wo = Ako1WorkOrder.model_validate(body.draft_wo)
+        draft = {**body.draft_wo}
+        # 工单号由系统生成（白皮书 US-003），用户无需填写
+        draft.setdefault("wo_number", draft_wo_number(seq=1))
+        wo = Ako1WorkOrder.model_validate(draft)
         problems = validate_work_order(wo)
         if problems:
             raise HTTPException(status_code=400, detail="schema_error: " + "; ".join(problems))
@@ -1207,7 +1210,7 @@ def identity_verify(body: IdentityVerifyBody) -> Dict[str, Any]:
     return verify_human(body.token, config.gateways.identity_base_url)
 ```
 
-`app.py` 顶部补 import：`from typing import Optional`（现有 `Any, Dict` 基础上追加）、`from datetime import datetime`、`from ako_intake.gateways.identity_client import login_human, verify_human`。
+`app.py` 顶部补 import：`from typing import Optional`（现有 `Any, Dict` 基础上追加）、`from datetime import datetime`、`from ako_intake.gateways.identity_client import login_human, verify_human`、`from ako_intake.utils.naming import draft_wo_number`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
