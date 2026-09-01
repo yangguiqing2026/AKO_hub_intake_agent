@@ -50,7 +50,9 @@ def health() -> Dict[str, Any]:
 
 @app.get("/metrics")
 def metrics_endpoint() -> Dict[str, Any]:
-    return metrics_payload(metrics)
+    payload = metrics_payload(metrics, budget=budget_tracker.snapshot())
+    payload["queue"] = queue_store.stats()
+    return payload
 
 
 @app.get("/api/v1/intake/sessions/{session_id}")

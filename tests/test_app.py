@@ -21,6 +21,15 @@ def test_metrics() -> None:
     assert "sessions_total" in response.json()
 
 
+def test_metrics_includes_budget_and_queue() -> None:
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    body = response.json()
+    assert "budget" in body
+    assert "usage_percent" in body["budget"]
+    assert "queue" in body
+
+
 def test_session_not_found() -> None:
     response = client.get("/api/v1/intake/sessions/does-not-exist")
     assert response.status_code == 404
