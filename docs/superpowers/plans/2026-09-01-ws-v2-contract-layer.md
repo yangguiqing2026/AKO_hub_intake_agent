@@ -461,6 +461,29 @@ def test_seq_monotonic_per_session(tmp_path: Path) -> None:
     assert hello_seq == 1
     # 按会话单调递增、从 1 起（设计 3.3）；hello 属 "" 会话计数器，新会话独立从 1 开始
     assert seqs == list(range(1, 1 + len(seqs)))
+
+
+def test_wo_edit_after_discard_returns_error(tmp_path: Path) -> None:
+    """wo_discard 清空草稿后 wo_edit 不崩溃（修复轮 1 覆盖）。"""
+    handler = _handler(tmp_path)
+    _send(handler, AUTH)
+    out = _send(handler, INPUT)
+    session_id = [m for m in out if m["type"] == "wo_preview"][0]["session_id"]
+    _send(handler, {"v": 2, "type": "wo_discard", "session_id": session_id, "payload": {}})
+    out2 = _send(handler, {"v": 2, "type": "wo_edit", "session_id": session_id, "payload": {"draft_wo": {"scope": "只动A"}}})
+    assert out2[0]["type"] == "error"
+    assert out2[0]["payload"]["code"] == "INVALID_PAYLOAD"
+
+
+def test_wo_edit_bad_field_type_returns_invalid_payload(tmp_path: Path) -> None:
+    """wo_edit 携带错误类型字段（如 rules=123）→ error(INVALID_PAYLOAD) 而非断连。"""
+    handler = _handler(tmp_path)
+    _send(handler, AUTH)
+    out = _send(handler, INPUT)
+    session_id = [m for m in out if m["type"] == "wo_preview"][0]["session_id"]
+    out2 = _send(handler, {"v": 2, "type": "wo_edit", "session_id": session_id, "payload": {"draft_wo": {"rules": 123}}})
+    assert out2[0]["type"] == "error"
+    assert out2[0]["payload"]["code"] == "INVALID_PAYLOAD"
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
