@@ -215,21 +215,29 @@ class PingMessage(WSEnvelopeMixin):
     payload: EmptyPayload
 
 
-InboundMessage = Annotated[
-    Union[
-        AuthMessage,
-        IntakeInputMessage,
-        P0ResponseMessage,
-        WoEditMessage,
-        WoConfirmMessage,
-        WoDiscardMessage,
-        SessionResumeMessage,
-        SessionAbandonMessage,
-        StreamAckMessage,
-        PingMessage,
-    ],
-    Field(discriminator="type"),
-]
+class InboundMessage(RootModel[Annotated[Union[
+    AuthMessage,
+    IntakeInputMessage,
+    P0ResponseMessage,
+    WoEditMessage,
+    WoConfirmMessage,
+    WoDiscardMessage,
+    SessionResumeMessage,
+    SessionAbandonMessage,
+    StreamAckMessage,
+    PingMessage,
+], Field(discriminator="type")]]):
+    """入站消息判别联合。
+
+    Pydantic v2 中裸 ``Annotated[Union[...], Field(discriminator=...)]`` 别名
+    无模型方法（GH #10409），以 RootModel 包装获得 ``model_validate`` /
+    ``model_json_schema``；``__getattr__`` 委托使 ``msg.type`` /
+    ``msg.payload`` 等直接可访问。
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        """委托到 .root，保持消息字段直接访问语义。"""
+        return getattr(self.root, name)
 
 
 class ErrorPayload(BaseModel):
@@ -268,7 +276,7 @@ class BootstrapConfig(BaseModel):
     observability: Dict[str, Any] = Field(default_factory=dict)
 ```
 
-注意：`models.py` 顶部已 `from typing import Any, Dict, List, Literal, Optional` 与 `from pydantic import BaseModel, Field`，无需新增 import；`Annotated`/`Union` 需在顶部 import 追加：`from typing import Annotated, Union`。
+注意：`models.py` 顶部已 `from typing import Any, Dict, List, Literal, Optional` 与 `from pydantic import BaseModel, Field`；需追加 `from typing import Annotated, Union` 与 `from pydantic import RootModel`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
