@@ -65,6 +65,15 @@ class ReviewerSettings:
 
 
 @dataclass
+class WsSettings:
+    """WS v2 协议参数（设计 3.5.3 ws 段）。"""
+
+    heartbeat_seconds: int = 30
+    stream_ack_bytes: int = 16384
+    auth_timeout_seconds: int = 10
+
+
+@dataclass
 class GatewaySettings:
     """对外网关地址。"""
 
@@ -103,6 +112,7 @@ class AppConfig:
     budget: BudgetSettings = field(default_factory=BudgetSettings)
     llm_router: LlmRouterSettings = field(default_factory=LlmRouterSettings)
     reviewer: ReviewerSettings = field(default_factory=ReviewerSettings)
+    ws: WsSettings = field(default_factory=WsSettings)
     knowledge_base_url: str = "http://localhost:8000"
     knowledge_enabled: bool = False
     gateways: GatewaySettings = field(default_factory=GatewaySettings)
@@ -144,6 +154,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     budget_raw = raw.get("budget", {})
     router_raw = raw.get("llm_router", {})
     reviewer_raw = raw.get("reviewer", {})
+    ws_raw = raw.get("ws", {})
     gateways_raw = raw.get("gateways", {})
     db_raw = raw.get("db", {})
     knowledge_raw = raw.get("knowledge", {})
@@ -178,6 +189,11 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         reviewer=ReviewerSettings(
             fallback_semantic_score=float(reviewer_raw.get("fallback_semantic_score", 1.0)),
             use_semantic_llm=bool(reviewer_raw.get("use_semantic_llm", False)),
+        ),
+        ws=WsSettings(
+            heartbeat_seconds=int(ws_raw.get("heartbeat_seconds", 30)),
+            stream_ack_bytes=int(ws_raw.get("stream_ack_bytes", 16384)),
+            auth_timeout_seconds=int(ws_raw.get("auth_timeout_seconds", 10)),
         ),
         knowledge_base_url=_env("INTAKE_KNOWLEDGE_URL", knowledge_raw.get("base_url", "http://localhost:8000")),
         knowledge_enabled=bool(knowledge_raw.get("enabled", False)),
