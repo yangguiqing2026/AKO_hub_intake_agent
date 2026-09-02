@@ -30,7 +30,7 @@ export function LoginPage(): JSX.Element {
 
   return (
     <section style={{ maxWidth: 360, margin: "80px auto", textAlign: "center" }}>
-      <h1 style={{ background: "var(--c-gold-grad)", WebkitBackgroundClip: "text", color: "transparent" }}>AKO 工厂大门</h1>
+      <h1 style={{ color: "var(--c-gold-text)" }}>AKO 工作台</h1>
       <p>登录 AKO 体系（账号 + 六位指纹）</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <input placeholder="账号" value={account} onChange={(e) => setAccount(e.target.value)} style={{ padding: 8 }} />

@@ -37,9 +37,9 @@ export function App(): JSX.Element {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--c-bg)", color: "var(--c-text)" }}>
-      <header style={{ padding: "16px 24px", background: "var(--c-gold-grad)", color: "#fff" }}>
+      <header style={{ padding: "16px 24px", background: "var(--c-gold-dark)", color: "#fff" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0, fontSize: 20 }}>AKO 工厂大门</h1>
+          <h1 style={{ margin: 0, fontSize: 20 }}>AKO 工作台</h1>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <span title="连接状态" style={{ width: 10, height: 10, borderRadius: 5, background: connection === "open" ? "#3e7d4f" : connection === "reconnecting" ? "#b8860b" : "#a33a2b" }} />
             <button onClick={toggleTheme}>{theme === "light" ? "深色" : "浅色"}</button>

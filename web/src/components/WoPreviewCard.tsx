@@ -56,7 +56,7 @@ export function WoPreviewCard({ wo, confidenceScore, reviewScore, riskFlag, onEd
           <>
             <button onClick={() => setEditing(true)}>编辑</button>
             <button onClick={onDiscard}>放弃</button>
-            <button onClick={onConfirm} style={{ background: "var(--c-gold-grad)", color: "#fff" }}>确认投递</button>
+            <button onClick={onConfirm} style={{ background: "var(--c-gold-dark)", color: "#fff" }}>确认投递</button>
           </>
         )}
       </div>
