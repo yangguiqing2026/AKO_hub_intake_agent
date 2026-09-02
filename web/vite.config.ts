@@ -6,8 +6,11 @@ export default defineConfig({
   server: {
     port: 5027,
     proxy: {
-      "/ws": "http://localhost:5026",
+      "/ws": { target: "http://localhost:5026", ws: true },
       "/api": "http://localhost:5026",
+      // OpsPage 健康/指标端点走根路径（非 /api 前缀），dev 下需直通后端
+      "/health": "http://localhost:5026",
+      "/metrics": "http://localhost:5026",
     },
   },
   test: {
