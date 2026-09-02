@@ -70,7 +70,7 @@
 | `queued_local` | `{wo_number, next_retry_at}` | S65 Hub 不可达入本地队列 |
 | `manual_review` | `{draft_wo, reason}` | S85 入人工审核队列（reason 如 `REGISTRY_BLOCKED`/`P0_MAX_ROUNDS_EXCEEDED`） |
 | `stream_chunk` | `{stream_id, kind: "start"\|"chunk"\|"end", data}` | 分片流帧（3.4）；`use_llm=false`（当前配置）时无此帧 |
-| `soft_break` | `{usage_percent, monthly_quota_tokens}` | 预算软熔断触发（7.6），前端升横幅 + 强制专家模式；Phase A 仅契约预留，Phase D 实现 |
+| `soft_break` | `{usage_percent, monthly_quota_tokens, active}` | 预算软熔断状态消息（7.6）：`active=true` 触发（升横幅 + 强制专家模式）、`active=false` 解除（配额上调即时推送）；解除亦经 hello/bootstrap 快照 `soft_break_active=false` 对账 |
 | `error` | `{code, message}` | 见"错误码"表 |
 | `pong` | `{}` | 心跳应答 |
 

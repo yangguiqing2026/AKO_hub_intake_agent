@@ -23,12 +23,28 @@ export function useIntakeSocket(): void {
       onMessage: (msg): void => {
         if (msg.type === "hello") {
           useBootstrapStore.getState().setLoaded(msg.payload.bootstrap);
+          // 软熔断对账（bootstrap 为事实源）：budget.soft_break_active=false 时无条件清除横幅
+          // （进程重启/配额恢复后旧 latch 不再适用）；字段为宽松 record，用 === true 窄判断。
+          const budget = msg.payload.bootstrap.budget as Record<string, unknown> | undefined;
+          if (budget?.soft_break_active === true) {
+            useUiStore.getState().pushSoftBreak({
+              usagePercent: Number(budget.usage_percent ?? 0),
+              monthlyQuotaTokens: Number(budget.monthly_quota_tokens ?? 0),
+            });
+          } else {
+            useUiStore.getState().clearSoftBreak();
+          }
         } else if (msg.type === "soft_break") {
           // 传输层 payload 为 snake_case（schemas/ws），UiSlice.SoftBreak 为 camelCase，映射后写入。
-          useUiStore.getState().pushSoftBreak({
-            usagePercent: msg.payload.usage_percent,
-            monthlyQuotaTokens: msg.payload.monthly_quota_tokens,
-          });
+          // active=true → 升横幅（软熔断）；active=false → 解除横幅（配额上调即时推送）。
+          if (msg.payload.active) {
+            useUiStore.getState().pushSoftBreak({
+              usagePercent: msg.payload.usage_percent,
+              monthlyQuotaTokens: msg.payload.monthly_quota_tokens,
+            });
+          } else {
+            useUiStore.getState().clearSoftBreak();
+          }
         } else if (msg.type === "error") {
           if (msg.payload.code === "AUTH_REQUIRED") {
             useAuthStore.getState().logout(); // 身份失效 → 回登录（FW-5 合并项）

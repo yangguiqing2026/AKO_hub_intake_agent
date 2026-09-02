@@ -69,4 +69,63 @@ describe("useIntakeSocket", () => {
     expect(capturedSend()).toHaveBeenCalledWith("auth", "", { token: "tok" });
     expect(capturedSend()).toHaveBeenCalledWith("session_resume", "s1", { session_id: "s1" });
   });
+
+  it("soft_break{active:true} → 升横幅（snake→camel 映射）", () => {
+    render(<Harness />);
+    act(() => {
+      captured.onMessage?.({ v: 2, type: "soft_break", session_id: "", seq: 1, ts: "t", req_id: "", payload: { usage_percent: 5.0, monthly_quota_tokens: 100000, active: true } });
+    });
+    const sb = useUiStore.getState().softBreak;
+    expect(sb).not.toBeNull();
+    expect(sb?.usagePercent).toBe(5.0);
+    expect(sb?.monthlyQuotaTokens).toBe(100000);
+  });
+
+  it("soft_break{active:false} → 横幅清除", () => {
+    useUiStore.getState().pushSoftBreak({ usagePercent: 5.0, monthlyQuotaTokens: 100000 });
+    render(<Harness />);
+    act(() => {
+      captured.onMessage?.({ v: 2, type: "soft_break", session_id: "", seq: 1, ts: "t", req_id: "", payload: { usage_percent: 0.5, monthly_quota_tokens: 1000000, active: false } });
+    });
+    expect(useUiStore.getState().softBreak).toBeNull();
+  });
+
+  it("hello 快照 soft_break_active=true → 升横幅（对账通道）", () => {
+    render(<Harness />);
+    act(() => {
+      captured.onMessage?.({
+        v: 2, type: "hello", session_id: "", seq: 1, ts: "t", req_id: "",
+        payload: {
+          protocol_version: 2, server_time: "t", session_id: "",
+          bootstrap: {
+            agent_id: "AKO_hub_intake_agent", version: "0.1.0", terms: [],
+            intake: {}, llm: {}, knowledge_enabled: false, identity_required: false, ws: {}, observability: {},
+            budget: { soft_break_active: true, usage_percent: 5.0, monthly_quota_tokens: 100000 },
+          },
+        },
+      });
+    });
+    const sb = useUiStore.getState().softBreak;
+    expect(sb).not.toBeNull();
+    expect(sb?.usagePercent).toBe(5.0);
+  });
+
+  it("hello 快照 soft_break_active=false → 横幅清除（对账事实源）", () => {
+    useUiStore.getState().pushSoftBreak({ usagePercent: 5.0, monthlyQuotaTokens: 100000 });
+    render(<Harness />);
+    act(() => {
+      captured.onMessage?.({
+        v: 2, type: "hello", session_id: "", seq: 1, ts: "t", req_id: "",
+        payload: {
+          protocol_version: 2, server_time: "t", session_id: "",
+          bootstrap: {
+            agent_id: "AKO_hub_intake_agent", version: "0.1.0", terms: [],
+            intake: {}, llm: {}, knowledge_enabled: false, identity_required: false, ws: {}, observability: {},
+            budget: { soft_break_active: false },
+          },
+        },
+      });
+    });
+    expect(useUiStore.getState().softBreak).toBeNull();
+  });
 });

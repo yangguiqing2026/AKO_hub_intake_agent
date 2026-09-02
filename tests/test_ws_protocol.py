@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, Optional
 
 from ako_intake.adapters.ws_protocol import WsSessionHandler
 from ako_intake.config import AppConfig, DbSettings, GatewaySettings, TermEntry
 from ako_intake.core.graph import compile_graph
 from ako_intake.db.queue_store import QueueStore
 from ako_intake.db.session_store import SessionStore
+from ako_intake.llm.budget import BudgetTracker
 from ako_intake.services.observability import Metrics
 
 
@@ -25,7 +27,7 @@ def _cfg(tmp_path: Path) -> AppConfig:
     ).resolve_paths()
 
 
-def _handler(tmp_path: Path) -> WsSessionHandler:
+def _handler(tmp_path: Path, budget: Optional[BudgetTracker] = None) -> WsSessionHandler:
     config = _cfg(tmp_path)
     return WsSessionHandler(
         config,
@@ -33,6 +35,7 @@ def _handler(tmp_path: Path) -> WsSessionHandler:
         QueueStore(config.db.queue_db),
         compile_graph(config),
         Metrics(),
+        budget=budget,
     )
 
 
@@ -177,3 +180,57 @@ def test_session_resume_seq_consistent(tmp_path: Path) -> None:
     assert snap["payload"]["seq"] == snap["seq"]
     out3 = _send(handler, {"v": 2, "type": "ping", "session_id": session_id, "payload": {}})
     assert out3[0]["seq"] == snap["seq"] + 1
+
+
+# ---- 预算软熔断生命周期（跃迁检测发射，缺口 1）----
+
+PING = {"v": 2, "type": "ping", "payload": {}}
+
+
+def _soft_break_of(out: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    hits = [m for m in out if m["type"] == "soft_break"]
+    return hits[0]["payload"] if hits else None
+
+
+def test_soft_break_activated_edge_emitted_once(tmp_path: Path) -> None:
+    """用量跨过阈值 → 下一条入站消息响应携带 soft_break{active:true}；同态再触发不重复发射。"""
+    tracker = BudgetTracker(monthly_quota_tokens=100_000)
+    handler = _handler(tmp_path, budget=tracker)
+    _send(handler, AUTH)
+    tracker.record("x", 5_000)  # 恰 5.0%，跨阈
+    out = _send(handler, PING)
+    payload = _soft_break_of(out)
+    assert payload is not None
+    assert payload["active"] is True
+    assert payload["usage_percent"] == 5.0
+    assert payload["monthly_quota_tokens"] == 100_000
+    assert [m for m in out if m["type"] == "pong"], "ping 应答不受软熔断消息影响"
+    out2 = _send(handler, PING)
+    assert _soft_break_of(out2) is None, "无沿变化不重复发射"
+
+
+def test_soft_break_cleared_edge_on_quota_raise(tmp_path: Path) -> None:
+    """进程内配额上调（唯一解除途径）→ 下条消息响应携带 soft_break{active:false}。"""
+    tracker = BudgetTracker(monthly_quota_tokens=100_000)
+    handler = _handler(tmp_path, budget=tracker)
+    _send(handler, AUTH)
+    tracker.record("x", 5_000)
+    out = _send(handler, PING)
+    assert _soft_break_of(out)["active"] is True
+    tracker.set_quota(1_000_000)
+    out2 = _send(handler, PING)
+    payload = _soft_break_of(out2)
+    assert payload is not None
+    assert payload["active"] is False
+
+
+def test_soft_break_no_edge_no_message(tmp_path: Path) -> None:
+    """用量未跨阈 → 全程无 soft_break 消息。"""
+    tracker = BudgetTracker(monthly_quota_tokens=100_000)
+    handler = _handler(tmp_path, budget=tracker)
+    _send(handler, AUTH)
+    tracker.record("x", 1_000)  # 1.0%，未跨阈
+    out = _send(handler, PING)
+    assert _soft_break_of(out) is None
+    out2 = _send(handler, PING)
+    assert _soft_break_of(out2) is None

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 import app as app_module
+from ako_intake.llm.budget import BudgetTracker
 from app import app
 
 client = TestClient(app)
@@ -178,3 +179,20 @@ def test_ws_auth_timeout_closes(monkeypatch) -> None:
         assert data["type"] == "error"
         assert data["payload"]["code"] == "AUTH_REQUIRED"
 
+
+
+def test_ws_hello_bootstrap_reconciles_soft_break(monkeypatch) -> None:
+    """hello 快照对账通道：跨阈连接 bootstrap 带 soft_break_active=true；配额上调后重连回 false。"""
+    tracker = BudgetTracker(monthly_quota_tokens=100_000)
+    monkeypatch.setattr(app_module, "budget_tracker", tracker)
+    tracker.record("e2e", 5_000)
+    with client.websocket_connect("/ws/intake") as websocket:
+        websocket.send_json({"v": 2, "type": "auth", "payload": {"token": "dev-token"}})
+        hello = websocket.receive_json()
+        assert hello["type"] == "hello"
+        assert hello["payload"]["bootstrap"]["budget"]["soft_break_active"] is True
+    tracker.set_quota(1_000_000)
+    with client.websocket_connect("/ws/intake") as websocket:
+        websocket.send_json({"v": 2, "type": "auth", "payload": {"token": "dev-token"}})
+        hello = websocket.receive_json()
+        assert hello["payload"]["bootstrap"]["budget"]["soft_break_active"] is False

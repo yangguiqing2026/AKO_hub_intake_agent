@@ -125,6 +125,8 @@ class WsSessionHandler:
         self.authenticated = False
         self.identity: str = ""
         self._seqs: Dict[str, int] = {}
+        # 预算软熔断状态 latch（每连接）：None=未初始化，True/False=上次已通知的状态
+        self._soft_break_told: Optional[bool] = None
 
     # ---- 序号与消息构造 ----
 
@@ -145,6 +147,35 @@ class WsSessionHandler:
 
     def _err(self, code: str, message: str, req_id: str = "") -> OutboundMessage:
         return self._msg("error", "", {"code": code, "message": message}, req_id=req_id)
+
+    def _append_soft_break_transition(self, out: List[OutboundMessage]) -> None:
+        """入站消息成功处理后轮询预算软熔断状态沿（设计：每连接 latch，非消费式）。
+
+        budget 未注入（None）时跳过；当前态 = should_soft_break(soft_limit_percent)。
+        - 与上次通知态不同 → 追加 soft_break 消息（active 表示当前态）并翻转 latch；
+        - 首次轮询（latch 为 None）：active=true 直接发射（覆盖 auth 后、首次业务消息前的跨界），
+          active=false 仅初始化，避免连接建立时对每个空闲连接广播无沿状态。
+        """
+        if self.budget is None:
+            return
+        active = bool(self.budget.should_soft_break(self.config.budget.soft_limit_percent))
+        if self._soft_break_told == active:
+            return
+        if self._soft_break_told is None and not active:
+            self._soft_break_told = False
+            return
+        self._soft_break_told = active
+        out.append(
+            self._msg(
+                "soft_break",
+                "",
+                {
+                    "usage_percent": self.budget.usage_percent(),
+                    "monthly_quota_tokens": self.budget.monthly_quota_tokens,
+                    "active": active,
+                },
+            )
+        )
 
     # ---- 主入口 ----
 
@@ -168,7 +199,11 @@ class WsSessionHandler:
             return [self._err("INVALID_PAYLOAD", f"负载校验失败: {exc}", req_id)]
         try:
             handler = getattr(self, f"_on_{msg_type}")
-            return handler(msg)
+            out = handler(msg)
+            # 软熔断沿检测挂入站消息响应尾部；auth 已由 hello.bootstrap 快照对账，跳过避免重复
+            if msg_type != "auth":
+                self._append_soft_break_transition(out)
+            return out
         except ProtocolError as exc:
             return [self._err(exc.code, exc.message, req_id)]
         except ValidationError as exc:

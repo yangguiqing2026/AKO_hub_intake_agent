@@ -139,9 +139,11 @@ tags: [agent, api, backend, frontend, workflow]
 | `queued_local` | `{wo_number, next_retry_at}` | S65 Hub 不可达入本地队列 |
 | `manual_review` | `{draft_wo, reason}` | S85 入人工审核队列（附差异清单/降级原因） |
 | `stream_chunk` | `{stream_id, kind: "start"\|"chunk"\|"end", data}` | 分片流帧（3.4） |
-| `soft_break` | `{usage_percent, monthly_quota_tokens}` | 预算软熔断触发（7.6），前端升横幅 + 强制专家模式 |
+| `soft_break` | `{usage_percent, monthly_quota_tokens, active}` | 预算软熔断状态消息（7.6）：`active=true` 触发（升横幅 + 强制专家模式），`active=false` 解除（横幅清除 + 恢复入口） |
 | `error` | `{code: ErrorCode, message: string}` | 见 6.1 错误码表 |
 | `pong` | `{}` | 心跳应答 |
+
+> **软熔断生命周期注记**：`soft_break` 是同一告警信号的双沿消息（`active` 区分触发/解除，非两个独立事件类型）。服务端在每个连接的入站消息响应尾部检测预算状态沿（进程级 `BudgetTracker.should_soft_break` + 每连接 latch），沿变化即下发；`session_id=""` 属全局运维信号，不触碰会话 seq 镜像。解除发生于：月配额上调（`set_quota` 后下条入站消息响应带 `active=false`）或进程重启加载新配额（经 `hello.bootstrap.budget.soft_break_active` 快照对账）。快照为对账事实源：新连接收到 `soft_break_active=false` 时无条件清除横幅。本文档表格即权威白名单，前后端须同版本生效。
 
 #### 3.2.3 关键消息负载示例
 
@@ -241,6 +243,8 @@ tags: [agent, api, backend, frontend, workflow]
   "observability": {"sentry_dsn": ""}   // 蓝皮书 get-sentry-init-options 等价；空=不启用
 }
 ```
+
+> `budget.soft_break_active` 为软熔断对账事实源：新连接（含进程重启、配额恢复后）以此为准，`false` 时前端无条件清除横幅（与 3.2.2 生命周期注记一致）。
 
 ### 3.6 鉴权契约（白皮书 A.5 三重门禁的接口面）
 
@@ -443,7 +447,7 @@ sequenceDiagram
 |---|---|---|
 | WS 断开 | 会话状态已持久化 | 退避重连 + snapshot 对账 |
 | P0 超时（300s） | 7.1 保守降级（审签 + 全局审计范围 + `risk_flag:"HIGH_AMBIGUITY"` + 人工审核队列） | 倒计时归零提示 + 展示 manual_review 卡片 |
-| 预算软熔断 | 7.6 禁用大模型解析，不阻塞大门 | `soft_break` 横幅 + 禁用自然语言入口、强制专家模式 |
+| 预算软熔断 | 7.6 禁用大模型解析，不阻塞大门 | `soft_break(active)` 横幅亮/灭 + 禁用/恢复自然语言入口（hello 快照对账兜底） |
 | 后端不可用 | — | bootstrap/health 失败 → 维护页（依赖灯展示） |
 | Hub 不可达 | 7.2 本地 SQLite 队列 + 指数退避 | queued_local 卡片 + OpsPage 队列面板可见重试态 |
 | PII 内容 | 出站前 mask_pii | "已脱敏"徽章 |
@@ -505,6 +509,8 @@ sequenceDiagram
 | `ako_intake/adapters/ws_protocol.py`（新） | WS v2 处理器：信封解析、入站白名单分派、auth 首消息与超时、seq 管理、快照构造、stream_chunk 发射器与流控 |
 | `app.py` | WS 端点改用 ws_protocol；新增 3.5.2 全部 REST 端点；/metrics 并入 budget+queue（monitor.metrics_payload 已支持 budget 参数，接线即可） |
 | `ako_intake/gateways/identity_client.py` | 扩展 login/verify 代理调用；未配置地址时返回开发态模拟（仅非生产） |
+| `ako_intake/llm/budget.py` | 预算跃迁跟踪：新增 `set_quota`（配额上调 = 解除软熔断的唯一进程内途径） |
+| `ako_intake/adapters/ws_protocol.py` | 软熔断生命周期发射：入站消息响应尾部沿检测（每连接 latch），发 `soft_break{active}` 全局消息 |
 | `ako_intake/config.py` + `config/intake_config.yaml` | 新增 `ws` 段（heartbeat_seconds/stream_ack_bytes/auth_timeout_seconds）、identity 端点地址；端口统一见附录 B |
 | `schemas/ws_message_v2.json`、`schemas/bootstrap_v1.json`（新） | 契约单一事实源 |
 | `docs/API.md` | 更新为 v2 契约（与本文档第三章一致） |

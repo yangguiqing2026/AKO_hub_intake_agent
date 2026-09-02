@@ -85,6 +85,26 @@ describe("IntakeSocket", () => {
     expect(JSON.parse(FakeWebSocket.instances[0].sent[0])).toEqual({ v: 2, type: "intake_input", session_id: "s1", payload: { text: "修复报价模块的bug，只动校验逻辑，不动数据库" } });
   });
 
+  it("soft_break 新形态（含 active）解析透传", () => {
+    const onMessage = vi.fn();
+    const s = new IntakeSocket({ url: "ws://x", onMessage });
+    s.connect();
+    FakeWebSocket.openLatest();
+    FakeWebSocket.emit(FakeWebSocket.instances[0], JSON.stringify({ v: 2, type: "soft_break", session_id: "", seq: 1, ts: "t", payload: { usage_percent: 5.0, monthly_quota_tokens: 100000, active: true } }));
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "soft_break" }));
+    const msg = onMessage.mock.calls[0][0] as { payload: { active: boolean } };
+    expect(msg.payload.active).toBe(true);
+  });
+
+  it("soft_break 旧形态（缺 active）被静默丢弃", () => {
+    const onMessage = vi.fn();
+    const s = new IntakeSocket({ url: "ws://x", onMessage });
+    s.connect();
+    FakeWebSocket.openLatest();
+    FakeWebSocket.emit(FakeWebSocket.instances[0], JSON.stringify({ v: 2, type: "soft_break", session_id: "", seq: 1, ts: "t", payload: { usage_percent: 5.0, monthly_quota_tokens: 100000 } }));
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
   it("stream_chunk 累计 16KB 自动发 stream_ack", () => {
     const s = new IntakeSocket({ url: "ws://x", onMessage: vi.fn(), streamAckBytes: 5 });
     s.connect();

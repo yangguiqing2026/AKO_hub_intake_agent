@@ -31,6 +31,11 @@ class BudgetTracker:
             return 0.0
         return round(total * 100.0 / self.monthly_quota_tokens, 2)
 
+    def set_quota(self, monthly_quota_tokens: int) -> None:
+        """调整月配额（上调即解除软熔断的唯一进程内途径）。"""
+        with self._lock:
+            self.monthly_quota_tokens = max(1, monthly_quota_tokens)
+
     def should_soft_break(self, limit_percent: float = 5.0) -> bool:
         """是否触发预算软熔断（月配额占比达到阈值）。"""
         return self.usage_percent() >= limit_percent

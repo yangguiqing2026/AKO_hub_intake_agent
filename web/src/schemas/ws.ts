@@ -63,7 +63,7 @@ export const outboundEnvelope = z.discriminatedUnion("type", [
   z.object({ ...outEnvelope, type: z.literal("queued_local"), payload: z.object({ wo_number: z.string(), next_retry_at: z.string() }) }),
   z.object({ ...outEnvelope, type: z.literal("manual_review"), payload: z.object({ draft_wo: z.record(z.string(), z.unknown()), reason: z.string() }) }),
   z.object({ ...outEnvelope, type: z.literal("stream_chunk"), payload: z.object({ stream_id: z.string(), kind: z.enum(["start", "chunk", "end"]), data: z.unknown() }) }),
-  z.object({ ...outEnvelope, type: z.literal("soft_break"), payload: z.object({ usage_percent: z.number(), monthly_quota_tokens: z.number() }) }),
+  z.object({ ...outEnvelope, type: z.literal("soft_break"), payload: z.object({ usage_percent: z.number(), monthly_quota_tokens: z.number(), active: z.boolean() }) }),
   z.object({ ...outEnvelope, type: z.literal("error"), payload: z.object({ code: z.string(), message: z.string() }) }),
   z.object({ ...outEnvelope, type: z.literal("pong"), payload: emptyPayload }),
 ]);
