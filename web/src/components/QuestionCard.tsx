@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Question } from "../api/client";
+import type { Question } from "../schemas/ws";
 
 interface Props {
   questions: Question[];

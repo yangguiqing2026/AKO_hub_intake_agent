@@ -1,11 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { IntakeSocket, type ServerMessage } from "../api/client";
+import type { Question } from "../schemas/ws";
 import { QuestionCard } from "../components/QuestionCard";
 import { WoPreviewCard } from "../components/WoPreviewCard";
 import { useSessionStore } from "../store/useSessionStore";
 
+// ---- 临时兼容层 ----
+// Task 2 已删除旧 api/client；本页将在 Task 6 整体重写并接入新传输层
+// （../api/ws 的 IntakeSocket）。此处内联最小 stub 仅用于保持工作树可编译。
+type ServerMessage =
+  | { type: "p0_interrogation"; session_id: string; questions: Question[] }
+  | { type: "wo_preview"; session_id: string; draft_wo: Record<string, unknown>; confidence_score: number; review_score?: number }
+  | { type: "status"; session_id: string; status: string }
+  | { type: "error"; error: string };
+
+class IntakeSocket {
+  constructor(_url: string, _onMessage: (msg: ServerMessage) => void) {}
+  connect(): void {}
+  send(_type: string, _payload: Record<string, unknown>): void {}
+  close(): void {}
+}
+
 export function IntakePage(): JSX.Element {
-  const { sessionId, rawText, setRawText, startSession, addTranscript, questions, setQuestions, previewWo, setPreview, status } = useSessionStore();
+  const { sessionId, startSession, addTranscript, questions, setQuestions, previewWo, setPreview, status } = useSessionStore();
   const [input, setInput] = useState("");
   const socketRef = useRef<IntakeSocket | null>(null);
 

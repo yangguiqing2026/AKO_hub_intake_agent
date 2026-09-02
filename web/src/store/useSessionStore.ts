@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Question } from "../api/client";
+import type { Question } from "../schemas/ws";
 
 interface SessionState {
   sessionId: string;
