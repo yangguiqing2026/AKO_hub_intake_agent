@@ -26,7 +26,7 @@
 
 ---
 
-### Task F1: zod schema 层与双端契约事实测试
+### Task 1: zod schema 层与双端契约事实测试
 
 **Files:**
 - Modify: `web/package.json`（新增依赖）
@@ -220,7 +220,7 @@ git commit -m "feat(web): zod 契约层与双端契约事实测试"
 
 ---
 
-### Task F2: API 客户端层（ws.ts 传输 + rest.ts）
+### Task 2: API 客户端层（ws.ts 传输 + rest.ts）
 
 **Files:**
 - Create: `web/src/api/ws.ts`、`web/src/api/rest.ts`
@@ -530,7 +530,7 @@ git commit -m "feat(web): WS v2 传输层与 REST 客户端（替换旧 client�
 
 ---
 
-### Task F3: Zustand 五切片（含 seq 镜像核心）
+### Task 3: Zustand 五切片（含 seq 镜像核心）
 
 **Files:**
 - Create: `web/src/store/useBootstrapStore.ts`、`web/src/store/useAuthStore.ts`、`web/src/store/useSessionStore.ts`（重写）、`web/src/store/useOpsStore.ts`、`web/src/store/useUiStore.ts`
@@ -931,7 +931,7 @@ git commit -m "feat(web): Zustand 五切片与 seq 镜像规则"
 
 ---
 
-### Task F4: 设计系统 tokens 与 AppShell
+### Task 4: 设计系统 tokens 与 AppShell
 
 **Files:**
 - Create: `web/src/styles/tokens.css`
@@ -1178,7 +1178,7 @@ git commit -m "feat(web): 设计系统 tokens、AppShell 与 socket 编排 hook�
 
 ---
 
-### Task F5: LoginPage 与 bootstrap/auth 接线
+### Task 5: LoginPage 与 bootstrap/auth 接线
 
 **Files:**
 - Create: `web/src/pages/LoginPage.tsx`、`web/src/pages/LoginPage.test.tsx`
@@ -1298,7 +1298,7 @@ git commit -m "feat(web): 登录页与身份门禁接线"
 
 ---
 
-### Task F6: IntakePage 全流程（输入→澄清→预览→评审→投递）
+### Task 6: IntakePage 全流程（输入→澄清→预览→评审→投递）
 
 **Files:**
 - Rewrite: `web/src/pages/IntakePage.tsx`
@@ -1776,7 +1776,7 @@ git commit -m "feat(web): intake 全流程（澄清/预览/评审/投递组件�
 
 ---
 
-### Task F7: ExpertPage / SessionsPage / OpsPage（完整 V1）
+### Task 7: ExpertPage / SessionsPage / OpsPage（完整 V1）
 
 **Files:**
 - Rewrite: `web/src/pages/ExpertPage.tsx`
@@ -2118,7 +2118,7 @@ git commit -m "feat(web): 专家模式接入 + 会话续传页 + 运维面板（
 
 ---
 
-### Task F8: 验收（E 阶段）：构建、全量测试与 AC 核对
+### Task 8: 验收（E 阶段）：构建、全量测试与 AC 核对
 
 **Files:**
 - Test: 全量 `npm test -- --run` + `npm run build`
