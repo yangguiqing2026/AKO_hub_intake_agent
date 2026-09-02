@@ -985,7 +985,26 @@ describe("AppShell", () => {
 Run: `npm test -- --run src/App.test.tsx`
 Expected: FAIL（缺 App 导出/组件）
 
-- [ ] **Step 3: 实现 tokens.css、useIntakeSocket、AppShell**
+- [ ] **Step 3: 先建页面占位 stub（预检裁定：F4 渲染 F5-F7 才实现的页面，先以命名 stub 跑通 AppShell）**
+
+创建 5 个占位文件（F5-F7 完整替换，占位渲染自身名称）：
+
+```tsx
+// web/src/pages/LoginPage.tsx（占位，F5 完整替换）
+export function LoginPage(): JSX.Element { return <div>登录</div>; }
+// web/src/pages/IntakePage.tsx（占位，F6 完整替换）
+export function IntakePage(): JSX.Element { return <div>IntakePage</div>; }
+// web/src/pages/ExpertPage.tsx（占位，F7 完整替换）
+export function ExpertPage(): JSX.Element { return <div>ExpertPage</div>; }
+// web/src/pages/SessionsPage.tsx（占位，F7 完整替换）
+export function SessionsPage(): JSX.Element { return <div>SessionsPage</div>; }
+// web/src/pages/OpsPage.tsx（占位，F7 完整替换）
+export function OpsPage(): JSX.Element { return <div>运维面板</div>; }
+```
+
+同步调整 F4 Step 1 的 App.test 断言（stub 语义）：`getByPlaceholderText("账号")` 改为 `getByText("登录")`；`getByText("运维面板")` 保持（stub 渲染该文本）。F5/F7 各自的页面测试断言真实内容。
+
+- [ ] **Step 4: 实现 tokens.css、useIntakeSocket、AppShell**
 
 创建 `web/src/styles/tokens.css`：
 
@@ -1145,16 +1164,16 @@ function ForceExpertOnSoftBreak({ active }: { active: boolean }): null {
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 5: 运行测试确认通过**
 
 Run: `npm test -- --run src/App.test.tsx`
-Expected: PASS（页面组件缺导出时，先用占位空组件跑通 AppShell；页面实现在 F5-F7 补齐）
+Expected: PASS（stub 页面已就位；F5-F7 将完整替换）
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 6: 提交**
 
 ```bash
-git add web/src/styles/tokens.css web/src/hooks/useIntakeSocket.ts web/src/App.tsx web/src/App.test.tsx
-git commit -m "feat(web): 设计系统 tokens、AppShell 与 socket 编排 hook"
+git add web/src/styles/tokens.css web/src/hooks/useIntakeSocket.ts web/src/App.tsx web/src/App.test.tsx web/src/pages/LoginPage.tsx web/src/pages/IntakePage.tsx web/src/pages/ExpertPage.tsx web/src/pages/SessionsPage.tsx web/src/pages/OpsPage.tsx
+git commit -m "feat(web): 设计系统 tokens、AppShell 与 socket 编排 hook（含页面占位）"
 ```
 
 ---
@@ -1672,6 +1691,7 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
   const setView = useUiStore((s2) => s2.setView);
   const liveSocket = useUiStore((s2) => s2.socket); // 真实连接（自审修正）
   const socketRef = useRef<IntakeSocketLike | null>(socket ?? liveSocket);
+  const skipResume = useRef(false); // 预检裁定：本页新建会话不发 resume
   const [humanConfirmed, setHumanConfirmed] = useState(false);
 
   useEffect(() => {
@@ -1679,9 +1699,14 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
   }, [socket, liveSocket]);
 
   useEffect(() => {
-    // 会话续传：外部设置 sessionId 后自动 resume（Expert/Sessions 页复用）
+    // 会话续传：外部设置 sessionId 后自动 resume（Expert/Sessions 页复用）；
+    // 本页 submit 新建的会话已显式发 intake_input，跳过 resume 避免多余快照
     if (s.sessionId && s.lastSeq === 0) {
-      socketRef.current?.send("session_resume", s.sessionId, { session_id: s.sessionId });
+      if (skipResume.current) {
+        skipResume.current = false;
+      } else {
+        socketRef.current?.send("session_resume", s.sessionId, { session_id: s.sessionId });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.sessionId]);
@@ -1690,6 +1715,7 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
 
   function submit(text: string): void {
     const sid = s.sessionId || `sess-${Date.now()}`;
+    skipResume.current = true; // 预检裁定：本页新建会话跳过自动 resume
     useSessionStore.getState().setSessionId(sid);
     useSessionStore.getState().appendTranscript(`您：${text}`);
     socketRef.current?.send("intake_input", sid, { text });
