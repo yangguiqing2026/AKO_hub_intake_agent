@@ -14,6 +14,7 @@ export class IntakeSocket {
   private ws: WebSocket | null = null;
   private backoffMs = 1000;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByUser = false;
   private streamBytes = 0;
   private streamId = "";
@@ -28,6 +29,10 @@ export class IntakeSocket {
   close(): void {
     this.closedByUser = true;
     this.stopHeartbeat();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.ws?.close();
     this.opts.onStateChange?.("closed");
   }
@@ -59,7 +64,11 @@ export class IntakeSocket {
 
   private scheduleReconnect(): void {
     this.opts.onStateChange?.("reconnecting");
-    setTimeout(() => this.open(), this.backoffMs);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.closedByUser) return;
+      this.open();
+    }, this.backoffMs);
     this.backoffMs = Math.min(this.backoffMs * 2, (this.opts.maxBackoffSeconds ?? 30) * 1000);
   }
 
