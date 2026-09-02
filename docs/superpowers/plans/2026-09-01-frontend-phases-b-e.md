@@ -2159,7 +2159,7 @@ Expected: `tsc -b`（strict）零错误 + `vite build` 产出 `dist/`。若 stri
 - [ ] **Step 3: 后端回归（确认前端未动后端）**
 
 Run: `cd .. && python -m pytest -q`
-Expected: 99 passed（1 既有警告）——证明前端改动零后端影响
+Expected: 101 passed（1 既有警告）——证明前端改动零后端影响
 
 - [ ] **Step 4: AC 核对清单（写入提交信息附注或本计划自审）**
 

@@ -16,7 +16,7 @@ export function SessionsPage({ socket }: { socket?: IntakeSocketLike | null }): 
   const setView = useUiStore((st) => st.setView);
 
   useEffect(() => {
-    const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useUiStore.getState().toast("身份过期") });
+    const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useAuthStore.getState().logout() });
     rest.get<{ sessions: SessionRow[] }>("/api/v1/intake/sessions")
       .then((r) => setRows(r.sessions))
       .catch((e) => setError(String(e)));

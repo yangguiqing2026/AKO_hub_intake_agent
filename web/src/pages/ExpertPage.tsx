@@ -28,15 +28,19 @@ export function ExpertPage({ socket }: { socket?: IntakeSocketLike | null }): JS
   const canSubmit = Boolean(form.module && form.action);
 
   async function submit(): Promise<void> {
-    const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useUiStore.getState().toast("身份过期") });
-    // rules/prohibitions 切分后为数组（TS strict：索引值类型收窄为 string | string[]）
-    const draftWo: Record<string, string | string[]> = { ...form };
-    if (form.rules) draftWo.rules = form.rules.split(/[，,;；]/).map((x) => x.trim()).filter(Boolean);
-    if (form.prohibitions) draftWo.prohibitions = form.prohibitions.split(/[，,;；]/).map((x) => x.trim()).filter(Boolean);
-    const res = await rest.post<CreateResult>("/api/v1/intake/sessions", { draft_wo: draftWo });
-    setCreated(res);
-    useSessionStore.getState().setSessionId(res.session_id);
-    sendSocket?.send("session_resume", res.session_id, { session_id: res.session_id });
+    try {
+      const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useAuthStore.getState().logout() });
+      // rules/prohibitions 切分后为数组（TS strict：索引值类型收窄为 string | string[]）
+      const draftWo: Record<string, string | string[]> = { ...form };
+      if (form.rules) draftWo.rules = form.rules.split(/[，,;；]/).map((x) => x.trim()).filter(Boolean);
+      if (form.prohibitions) draftWo.prohibitions = form.prohibitions.split(/[，,;；]/).map((x) => x.trim()).filter(Boolean);
+      const res = await rest.post<CreateResult>("/api/v1/intake/sessions", { draft_wo: draftWo });
+      setCreated(res);
+      useSessionStore.getState().setSessionId(res.session_id);
+      sendSocket?.send("session_resume", res.session_id, { session_id: res.session_id });
+    } catch (e) {
+      useUiStore.getState().toast(`提交失败：${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   return (

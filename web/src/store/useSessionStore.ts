@@ -35,7 +35,12 @@ export const useSessionStore = create<SessionSlice>((set, get) => ({
   queuedLocal: null, manualReview: null, transcript: [], needsResume: false,
   onGapRef: null,
 
-  setSessionId: (id: string): void => set({ sessionId: id, status: "IDLE", lastSeq: 0 }),
+  // 终审 I6：清逐会话镜像（wo_discard/换会话后残留草稿）
+  setSessionId: (id: string): void => set({
+    sessionId: id, status: "IDLE", lastSeq: 0, round: 0, questions: [], questionExpiresAt: "",
+    draftWo: null, confidenceScore: 0, reviewRecord: null, riskFlag: "", hubAck: null,
+    queuedLocal: null, manualReview: null, transcript: [], needsResume: false,
+  }),
   setOnGap: (fn: (() => void) | null): void => set({ onGapRef: fn }),
 
   applyMessage: (msg: OutboundMessage): void => {
@@ -60,6 +65,16 @@ export const useSessionStore = create<SessionSlice>((set, get) => ({
         if (msg.payload.status === "DELIVERED" || msg.payload.status === "MANUAL_REVIEW" || msg.payload.status === "QUEUED_LOCAL" || msg.payload.status === "ABANDONED" || msg.payload.status === "FAILED") {
           patch.questions = [];
           patch.questionExpiresAt = "";
+        }
+        // 终审 I6：wo_discard 后回 IDLE，清除草稿/回执镜像避免残留
+        if (msg.payload.status === "IDLE") {
+          patch.draftWo = null;
+          patch.confidenceScore = 0;
+          patch.reviewRecord = null;
+          patch.riskFlag = "";
+          patch.hubAck = null;
+          patch.queuedLocal = null;
+          patch.manualReview = null;
         }
         break;
       case "p0_interrogation":

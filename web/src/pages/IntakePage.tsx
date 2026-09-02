@@ -31,6 +31,10 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
   }, [socket, liveSocket]);
 
   useEffect(() => {
+    setHumanConfirmed(false); // 终审 C2：新预览（新草稿）到达即重置人工确认
+  }, [s.draftWo]);
+
+  useEffect(() => {
     // 会话续传：外部设置 sessionId 后自动 resume（Expert/Sessions 页复用）；
     // 本页 submit 新建的会话已显式发 intake_input，跳过 resume 避免多余快照
     if (s.sessionId && s.lastSeq === 0) {
@@ -54,7 +58,7 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
   }
 
   function confirmHuman(): void {
-    const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useUiStore.getState().toast("身份过期") });
+    const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useAuthStore.getState().logout() });
     void rest.post<{ status: string }>("/api/v1/intake/review", {
       session_id: s.sessionId, review_score: s.reviewRecord?.review_score ?? 0, human_confirmed: true,
     }).then(() => setHumanConfirmed(true)).catch((e) => useUiStore.getState().toast(String(e)));

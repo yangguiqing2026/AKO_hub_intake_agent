@@ -21,6 +21,7 @@ secrets.env
 # Node
 web/node_modules/
 web/dist/
+web/*.tsbuildinfo
 
 # 系统
 .DS_Store

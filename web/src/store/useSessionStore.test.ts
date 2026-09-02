@@ -67,4 +67,21 @@ describe("applyMessage 镜像规则（设计 3.3）", () => {
     useSessionStore.getState().applyMessage(statusMsg("other", 1, "DELIVERED"));
     expect(useSessionStore.getState().status).toBe("PARSING");
   });
+
+  it("status IDLE 清除草稿/回执镜像（终审 I6）", () => {
+    useSessionStore.getState().applyMessage({ v: 2, type: "wo_preview", session_id: "s1", seq: 1, ts: "t", req_id: "", payload: { draft_wo: { wo_number: "WO-DRAFT-1" }, confidence_score: 0.9, review_record: { review_score: 0.95, structural_passed: true, differences: [], reviewed_at: "" }, risk_flag: "", actions: ["confirm", "edit", "discard"] } });
+    useSessionStore.getState().applyMessage({ v: 2, type: "status", session_id: "s1", seq: 2, ts: "t", req_id: "", payload: { status: "IDLE" } });
+    const s = useSessionStore.getState();
+    expect(s.draftWo).toBeNull();
+    expect(s.hubAck).toBeNull();
+  });
+
+  it("setSessionId 清除上一会话镜像（终审 I6）", () => {
+    useSessionStore.getState().applyMessage({ v: 2, type: "hub_ack", session_id: "s1", seq: 1, ts: "t", req_id: "", payload: { ack: { wo_number: "WO-HAI-1" } } });
+    useSessionStore.getState().setSessionId("s2");
+    const s = useSessionStore.getState();
+    expect(s.sessionId).toBe("s2");
+    expect(s.hubAck).toBeNull();
+    expect(s.transcript).toEqual([]);
+  });
 });

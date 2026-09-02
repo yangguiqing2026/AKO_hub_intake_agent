@@ -30,6 +30,9 @@ export function App(): JSX.Element {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // 软熔断硬锁定（终审 I4/AC-27 防绕过）：渲染期推导，intake 入口不可见且视图被推导到 expert
+  const effectiveView: View = softBreak && view === "intake" ? "expert" : view;
+
   if (!loggedIn) return <LoginPage />;
 
   return (
@@ -44,8 +47,8 @@ export function App(): JSX.Element {
           </div>
         </div>
         <nav style={{ marginTop: 8, display: "flex", gap: 12 }}>
-          {NAV.map((n) => (
-            <button key={n.view} onClick={() => setView(n.view)} style={{ fontWeight: view === n.view ? 700 : 400 }}>{n.label}</button>
+          {NAV.filter((n) => !(softBreak && n.view === "intake")).map((n) => (
+            <button key={n.view} onClick={() => setView(n.view)} style={{ fontWeight: effectiveView === n.view ? 700 : 400 }}>{n.label}</button>
           ))}
         </nav>
       </header>
@@ -54,23 +57,12 @@ export function App(): JSX.Element {
           预算软熔断：用量 {softBreak.usagePercent.toFixed(1)}% / 月配额 {softBreak.monthlyQuotaTokens.toLocaleString()} tokens，已强制专家模式
         </div>
       )}
-      {/* 软熔断强制专家模式（设计 4.3/7.6）：仅当用户停在自然语言入口时切换 */}
-      <ForceExpertOnSoftBreak active={Boolean(softBreak)} />
       <main style={{ padding: 24, maxWidth: 760, margin: "0 auto" }}>
-        {view === "intake" && <IntakePage />}
-        {view === "expert" && <ExpertPage />}
-        {view === "sessions" && <SessionsPage />}
-        {view === "ops" && <OpsPage />}
+        {effectiveView === "intake" && <IntakePage />}
+        {effectiveView === "expert" && <ExpertPage />}
+        {effectiveView === "sessions" && <SessionsPage />}
+        {effectiveView === "ops" && <OpsPage />}
       </main>
     </div>
   );
-}
-
-function ForceExpertOnSoftBreak({ active }: { active: boolean }): null {
-  useEffect(() => {
-    if (active && useUiStore.getState().view === "intake") {
-      useUiStore.getState().setView("expert");
-    }
-  }, [active]);
-  return null;
 }

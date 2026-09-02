@@ -16,7 +16,7 @@ export function OpsPage(): JSX.Element {
   const [flushing, setFlushing] = useState(false);
 
   useEffect(() => {
-    const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useUiStore.getState().toast("身份过期") });
+    const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useAuthStore.getState().logout() });
     let alive = true;
     async function poll(): Promise<void> {
       try {
@@ -39,7 +39,7 @@ export function OpsPage(): JSX.Element {
   async function flush(): Promise<void> {
     setFlushing(true);
     try {
-      const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useUiStore.getState().toast("身份过期") });
+      const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useAuthStore.getState().logout() });
       const r = await rest.post<{ flushed: string[] }>("/api/v1/intake/queue/flush");
       useUiStore.getState().toast(`已冲刷 ${r.flushed.length} 张工单`);
     } catch (e) {

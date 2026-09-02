@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface Props {
   wo: Record<string, unknown>;
@@ -20,6 +20,11 @@ export function WoPreviewCard({ wo, confidenceScore, reviewScore, riskFlag, onEd
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, unknown>>(wo);
   const [piiMasked] = useState(true); // 后端出站已 mask_pii（设计 3.6 第三重），徽章仅展示
+
+  useEffect(() => {
+    setDraft(wo);   // 新预览到达：同步编辑草稿
+    setEditing(false); // 并退出编辑态
+  }, [wo]);
 
   const save = (): void => { onEdit(draft); setEditing(false); };
 
