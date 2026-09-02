@@ -2186,3 +2186,258 @@ git commit -m "feat(web): 验收阶段构建与测试基线（Phase B-E 完成�
 - **偏差说明**：① `hello.snapshot` 按 Phase A 实现为"不携带"（快照统一走 resume）——F3 applySnapshot 是唯一快照入口；② `ReviewPanel` 人工确认走 `POST /api/v1/intake/review{human_confirmed:true}`（设计 4.3），随后用户仍须点"确认投递"（wo_confirm）触发实际投递——后端两段式设计，前端如实呈现；③ 测试库：F4-F7 需 `npm i -D @testing-library/react`（若版本冲突改用 react-dom/test-utils，记录实测）。
 - **占位符扫描**：无 TBD/TODO；每个代码步骤含完整实现；三个页面测试中"若时序冲突按注释调整"为明确指示而非占位。
 - **类型一致性**：`IntakeSocket.send(type, sessionId, payload?)` 在 F2 定义、F4-F7 使用一致；`applyMessage(msg: OutboundMessage)` 在 F3 定义、F4 hook 路由使用一致；`session_resume` 负载 `{session_id}` 与后端 `SessionResumePayload` 一致；`IntakeSocketLike` 接口在 F6 定义、F7 导入复用一致。
+
+---
+
+## 终审修复波（Plan 2 final review fix wave，2026-09-02）
+
+全分支终审（opus）发现 2 Critical + 5 Important，全部前端内修复（零后端/契约影响），单次修复提交 + 测试：
+
+### FW-1 [C1] gap 恢复与重连对账接线（spec 3.3 规则 3 + 5.4）
+
+现状：`setOnGap` 仅测试调用（生产无注册），`needsResume` 无消费方——断线期间消息丢失或后端重启（seq 进程内存）后镜像永久冻结，无任何恢复通道。
+
+修复（`web/src/hooks/useIntakeSocket.ts`）：
+
+```ts
+  useEffect(() => {
+    const socket = new IntakeSocket({
+      url: WS_URL,
+      onOpen: (): void => {
+        const t = useAuthStore.getState().token;
+        if (t) socket.send("auth", "", { token: t });
+        // 重连对账（设计 5.4）：已有会话且镜像非空 → resume 拉快照
+        const { sessionId, lastSeq } = useSessionStore.getState();
+        if (sessionId && lastSeq > 0) socket.send("session_resume", sessionId, { session_id: sessionId });
+      },
+      onMessage: (msg): void => {
+        if (msg.type === "hello") {
+          useBootstrapStore.getState().setLoaded(msg.payload.bootstrap);
+        } else if (msg.type === "soft_break") {
+          useUiStore.getState().pushSoftBreak(msg.payload);
+        } else if (msg.type === "error") {
+          if (msg.payload.code === "AUTH_REQUIRED") {
+            useAuthStore.getState().logout(); // 身份失效 → 回登录（FW-5 合并项）
+          } else {
+            useUiStore.getState().toast(`错误 ${msg.payload.code}: ${msg.payload.message}`);
+          }
+        } else {
+          useSessionStore.getState().applyMessage(msg);
+        }
+      },
+      onStateChange: (s): void => useUiStore.getState().setConnection(s),
+    });
+    socketRef.current = socket;
+    useUiStore.getState().setSocket(socket);
+    // gap 恢复（设计 3.3）：seq 跳跃 → 发 session_resume
+    const onGap = (): void => {
+      const { sessionId } = useSessionStore.getState();
+      if (sessionId) socket.send("session_resume", sessionId, { session_id: sessionId });
+    };
+    useSessionStore.getState().setOnGap(onGap);
+    socket.connect();
+    return () => {
+      socket.close();
+      socketRef.current = null;
+      useUiStore.getState().setSocket(null);
+      useSessionStore.getState().setOnGap(null);
+    };
+  }, [token]);
+```
+
+新增测试 `web/src/hooks/useIntakeSocket.test.tsx`（保留构造选项的 mock + 宿主组件）：
+
+```tsx
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render } from "@testing-library/react";
+import { useIntakeSocket } from "./useIntakeSocket";
+import { useAuthStore } from "../store/useAuthStore";
+import { useSessionStore } from "../store/useSessionStore";
+import { useUiStore } from "../store/useUiStore";
+
+const captured: { onOpen?: () => void; onMessage?: (m: unknown) => void } = {};
+vi.mock("../api/ws", () => ({
+  IntakeSocket: class {
+    constructor(public opts: unknown) { Object.assign(captured, opts as object); }
+    connect = vi.fn(); close = vi.fn();
+    send = vi.fn((type: string, sessionId: string) => true);
+  },
+}));
+
+function Harness(): null { useIntakeSocket(); return null; }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useAuthStore.getState().logout();
+  useSessionStore.getState().reset();
+  useUiStore.getState().reset();
+});
+afterEach(() => cleanup());
+
+describe("useIntakeSocket", () => {
+  it("gap 时经 onGap 发送 session_resume", () => {
+    useAuthStore.getState().login("tok", "a");
+    useSessionStore.getState().applyMessage({ v: 2, type: "status", session_id: "s1", seq: 1, ts: "t", req_id: "", payload: { status: "PARSING" } });
+    render(<Harness />);
+    act(() => {
+      captured.onMessage?.({ v: 2, type: "status", session_id: "s1", seq: 3, ts: "t", req_id: "", payload: { status: "DELIVERED" } });
+    });
+    const send = vi.mocked(capturedSend().send);
+    expect(send).toHaveBeenCalledWith("session_resume", "s1", { session_id: "s1" });
+  });
+
+  it("onOpen 时已有会话且 lastSeq>0 → 重连对账 resume", () => {
+    useAuthStore.getState().login("tok", "a");
+    useSessionStore.getState().applyMessage({ v: 2, type: "status", session_id: "s1", seq: 1, ts: "t", req_id: "", payload: { status: "PARSING" } });
+    render(<Harness />);
+    act(() => captured.onOpen?.());
+    expect(capturedSend().send).toHaveBeenCalledWith("auth", "", { token: "tok" });
+    expect(capturedSend().send).toHaveBeenCalledWith("session_resume", "s1", { session_id: "s1" });
+  });
+});
+```
+
+（`capturedSend()` 为取最近一次 mock 实例的辅助；如 mock 结构需调整以实测为准。）
+
+### FW-2 [C2] humanConfirmed 跨轮重置（评审门禁防绕过）
+
+现状：确认后 `wo_edit` 出新预览（新 review_record）时 `humanConfirmed` 仍 true，绕过 S22 人工确认门禁。
+
+修复（`web/src/pages/IntakePage.tsx`）：
+
+```tsx
+  useEffect(() => {
+    setHumanConfirmed(false); // 终审 C2：新预览（新草稿）到达即重置人工确认
+  }, [s.draftWo]);
+```
+
+新增测试（`web/src/pages/IntakePage.test.tsx`）：
+
+```tsx
+  it("wo_preview 更新后人工确认状态重置（终审 C2）", () => {
+    const { socket, sent } = makeSocket();
+    render(<IntakePage socket={socket} />);
+    act(() => {
+      useSessionStore.getState().applyMessage({ v: 2, type: "wo_preview", session_id: "s1", seq: 1, ts: "t", req_id: "", payload: { draft_wo: { wo_number: "WO-DRAFT-1" }, confidence_score: 0.8, review_record: { review_score: 0.85, structural_passed: true, differences: [], reviewed_at: "t1" }, risk_flag: "", actions: ["confirm", "edit", "discard"] } });
+      useSessionStore.getState().applyMessage({ v: 2, type: "status", session_id: "s1", seq: 2, ts: "t", req_id: "", payload: { status: "REVIEWING" } });
+    });
+    // 确认后新预览（同会话同 seq 续）→ 重新显示"人工确认通过"按钮
+    act(() => {
+      useSessionStore.getState().applyMessage({ v: 2, type: "wo_preview", session_id: "s1", seq: 3, ts: "t", req_id: "", payload: { draft_wo: { wo_number: "WO-DRAFT-1", scope: "只动A" }, confidence_score: 0.8, review_record: { review_score: 0.85, structural_passed: true, differences: [], reviewed_at: "t2" }, risk_flag: "", actions: ["confirm", "edit", "discard"] } });
+    });
+    expect(screen.getByRole("button", { name: "人工确认通过" })).toBeDefined();
+  });
+```
+
+（测试内确认动作依赖真实 POST——以 mock rest 注入 + 点击"人工确认通过"后断言按钮重新出现为准，可调整。）
+
+### FW-3 [I3] WoPreviewCard 编辑态同步（wo_edit 往返后不陈旧）
+
+修复（`web/src/components/WoPreviewCard.tsx`，`import { useEffect, useState } from "react"`）：
+
+```tsx
+  useEffect(() => {
+    setDraft(wo);   // 新预览到达：同步编辑草稿
+    setEditing(false); // 并退出编辑态
+  }, [wo]);
+```
+
+### FW-4 [I4] 软熔断硬锁定（AC-27 防绕过）+ nav 隐藏
+
+修复（`web/src/App.tsx`）：`ForceExpertOnSoftBreak` 移除，改渲染期推导：
+
+```tsx
+  const effectiveView: View = softBreak && view === "intake" ? "expert" : view;
+  ...
+  {NAV.filter((n) => !(softBreak && n.view === "intake")).map((n) => (
+    <button key={n.view} onClick={() => setView(n.view)} style={{ fontWeight: effectiveView === n.view ? 700 : 400 }}>{n.label}</button>
+  ))}
+  ...
+  {effectiveView === "intake" && <IntakePage />}
+  {effectiveView === "expert" && <ExpertPage />}
+  ...
+```
+
+（删除 `ForceExpertOnSoftBreak` 组件与引用；softBreak 激活时 intake 入口不可见且视图被推导到 expert。）
+
+### FW-5 [I5] 401/AUTH_REQUIRED → 跳登录（spec 6.1）
+
+- 各页 `createRestClient` 的 `onUnauthorized` 从 `toast("身份过期")` 改为 `useAuthStore.getState().logout()`（IntakePage/ExpertPage/SessionsPage/OpsPage 四处）。
+- WS `error(AUTH_REQUIRED)` 分支已在 FW-1 的 hook 中处理（logout）。
+
+### FW-6 [I6] IDLE 与 setSessionId 清镜像（wo_discard 后残留草稿）
+
+修复（`web/src/store/useSessionStore.ts`）：
+
+```ts
+  // status 分支：
+  if (msg.payload.status === "IDLE") {
+    patch.draftWo = null;
+    patch.confidenceScore = 0;
+    patch.reviewRecord = null;
+    patch.riskFlag = "";
+    patch.hubAck = null;
+    patch.queuedLocal = null;
+    patch.manualReview = null;
+  }
+  // setSessionId 清逐会话镜像：
+  setSessionId: (id: string): void => set({
+    sessionId: id, status: "IDLE", lastSeq: 0, round: 0, questions: [], questionExpiresAt: "",
+    draftWo: null, confidenceScore: 0, reviewRecord: null, riskFlag: "", hubAck: null,
+    queuedLocal: null, manualReview: null, transcript: [], needsResume: false,
+  }),
+```
+
+新增测试（`web/src/store/useSessionStore.test.ts`）：
+
+```ts
+  it("status IDLE 清除草稿/回执镜像（终审 I6）", () => {
+    useSessionStore.getState().applyMessage({ v: 2, type: "wo_preview", session_id: "s1", seq: 1, ts: "t", req_id: "", payload: { draft_wo: { wo_number: "WO-DRAFT-1" }, confidence_score: 0.9, review_record: { review_score: 0.95 }, risk_flag: "", actions: ["confirm", "edit", "discard"] } });
+    useSessionStore.getState().applyMessage({ v: 2, type: "status", session_id: "s1", seq: 2, ts: "t", req_id: "", payload: { status: "IDLE" } });
+    const s = useSessionStore.getState();
+    expect(s.draftWo).toBeNull();
+    expect(s.hubAck).toBeNull();
+  });
+
+  it("setSessionId 清除上一会话镜像（终审 I6）", () => {
+    useSessionStore.getState().applyMessage({ v: 2, type: "hub_ack", session_id: "s1", seq: 1, ts: "t", req_id: "", payload: { ack: { wo_number: "WO-HAI-1" } } });
+    useSessionStore.getState().setSessionId("s2");
+    const s = useSessionStore.getState();
+    expect(s.sessionId).toBe("s2");
+    expect(s.hubAck).toBeNull();
+    expect(s.transcript).toEqual([]);
+  });
+```
+
+### FW-7 [I7] ExpertPage submit 错误处理
+
+修复（`web/src/pages/ExpertPage.tsx`）：
+
+```tsx
+  async function submit(): Promise<void> {
+    try {
+      const rest = createRestClient({ baseUrl: REST_BASE, getToken: () => token, onUnauthorized: () => useAuthStore.getState().logout() });
+      const draftWo: Record<string, string | string[]> = { ...form };
+      if (draftWo.rules) draftWo.rules = (draftWo.rules as string).split(/[，,;；]/).map((x) => x.trim()).filter(Boolean);
+      if (draftWo.prohibitions) draftWo.prohibitions = (draftWo.prohibitions as string).split(/[，,;；]/).map((x) => x.trim()).filter(Boolean);
+      const res = await rest.post<CreateResult>("/api/v1/intake/sessions", { draft_wo: draftWo });
+      setCreated(res);
+      useSessionStore.getState().setSessionId(res.session_id);
+      sendSocket?.send("session_resume", res.session_id, { session_id: res.session_id });
+    } catch (e) {
+      useUiStore.getState().toast(`提交失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+```
+
+### FW-8 卫生项
+
+- `.gitignore` 追加 `web/*.tsbuildinfo`。
+- Plan 2 Task 8 的 "Expected: 99 passed" 更新为 "101 passed"（含会话 ID 防碰撞修复基线）。
+- `web/src/hooks/useIntakeSocket.ts` 的 `socketRef` 死代码随 FW-1 重写自然消除。
+
+### FW 验证
+
+- 前端：`cd web && npm test -- --run`（预期 38 + 新增全绿）+ `npm run build`（tsc strict + vite）。
+- 后端：`python -m pytest -q`（101 passed 不受影响）。
+- 提交信息：`fix(web): 终审修复波（gap 恢复接线/评审门禁重置/编辑同步/软熔断锁/401 跳登录/IDLE 清镜像/错误反馈）`
