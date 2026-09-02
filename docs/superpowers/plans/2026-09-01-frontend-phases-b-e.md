@@ -302,6 +302,16 @@ describe("IntakeSocket", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
+  it("退避窗口内 close() 取消待触发重连（修复轮 1 覆盖）", () => {
+    const s = new IntakeSocket({ url: "ws://x", onMessage: vi.fn() });
+    s.connect();
+    FakeWebSocket.openLatest();
+    FakeWebSocket.instances[0].close(); // 触发退避调度（1s）
+    s.close();                          // 退避窗口内关闭
+    vi.advanceTimersByTime(100000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
   it("send 按 v2 信封发送；未连接时返回 false", () => {
     const s = new IntakeSocket({ url: "ws://x", onMessage: vi.fn() });
     expect(s.send("ping", "")).toBe(false);
@@ -385,6 +395,7 @@ export interface IntakeSocketOptions {
 export class IntakeSocket {
   private ws: WebSocket | null = null;
   private backoffMs = 1000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null; // 修复轮：退避定时器可取消
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private closedByUser = false;
   private streamBytes = 0;
@@ -400,6 +411,10 @@ export class IntakeSocket {
   close(): void {
     this.closedByUser = true;
     this.stopHeartbeat();
+    if (this.reconnectTimer) { // 修复轮：退避窗口内关闭必须取消待触发重连
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.ws?.close();
     this.opts.onStateChange?.("closed");
   }
@@ -431,7 +446,11 @@ export class IntakeSocket {
 
   private scheduleReconnect(): void {
     this.opts.onStateChange?.("reconnecting");
-    setTimeout(() => this.open(), this.backoffMs);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.closedByUser) return; // 修复轮：双保险，close() 后回调不再重连
+      this.open();
+    }, this.backoffMs);
     this.backoffMs = Math.min(this.backoffMs * 2, (this.opts.maxBackoffSeconds ?? 30) * 1000);
   }
 
