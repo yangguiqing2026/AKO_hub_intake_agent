@@ -114,7 +114,7 @@ tags: [agent, api, backend, frontend, workflow]
 | `auth` | `{token: string}` | 连接建立 | 连接后首条消息（超时未发即断开）。令牌经 identity 校验后绑定会话身份 |
 | `intake_input` | `{text: string}` | S00→S10 | 文本 10~2000 字符；超限回 `error(TEXT_TOO_LONG/TEXT_TOO_SHORT)` |
 | `p0_response` | `{round: int, answers: [{qid, value}], conservative?: boolean}` | S30→S20 | `conservative: true` = 用户选择"按最保守策略处理"，触发 7.1 降级路径（US-002） |
-| `wo_edit` | `{draft_wo: {部分字段}}` | S50 人工微调 | 回写后重跑 validate（S60）与 M07 评审（S22），再发 `wo_preview` |
+| `wo_edit` | `{draft_wo: {部分字段}}` | S50 人工微调 | 回写后重跑 validate（S60）与 M07 评审（S22），重置人工确认（human_confirmed=false，旧确认不穿透新草稿），再发 `wo_preview` |
 | `wo_confirm` | `{}` | S22/S50→S70 | 确认投递：registry verify → allocate → deliver 三重门禁链路 |
 | `wo_discard` | `{}` | →S90 | 放弃当前工单 |
 | `session_resume` | `{session_id: string}` | 断点续传（8.4） | 服务端回 `session_snapshot` |

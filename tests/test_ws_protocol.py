@@ -234,3 +234,20 @@ def test_soft_break_no_edge_no_message(tmp_path: Path) -> None:
     assert _soft_break_of(out) is None
     out2 = _send(handler, PING)
     assert _soft_break_of(out2) is None
+
+
+def test_wo_edit_resets_human_confirmed(tmp_path: Path) -> None:
+    """编辑草稿后旧的人工确认失效（M07 门禁防绕过，缺口 2）。"""
+    handler = _handler(tmp_path)
+    _send(handler, AUTH)
+    out = _send(handler, INPUT)
+    session_id = [m for m in out if m["type"] == "wo_preview"][0]["session_id"]
+    state = handler.session_store.load(session_id)
+    assert state is not None
+    state["human_confirmed"] = True
+    handler.session_store.save(session_id, "REVIEWING", state)
+    out2 = _send(handler, {"v": 2, "type": "wo_edit", "session_id": session_id, "payload": {"draft_wo": {"scope": "只动A模块"}}})
+    assert [m for m in out2 if m["type"] == "wo_preview"], "编辑应回 wo_preview"
+    updated = handler.session_store.load(session_id)
+    assert updated is not None
+    assert updated.get("human_confirmed") is False

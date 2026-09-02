@@ -280,6 +280,7 @@ class WsSessionHandler:
         record = review_work_order(wo, self.config.intake.review_score_threshold)
         state["draft_work_order"] = wo.model_dump()
         state["review_record"] = record.model_dump()
+        state["human_confirmed"] = False  # 草稿变更即作废旧的人工确认（M07 门禁防绕过）
         state["status"] = "REVIEWING"
         self.session_store.save(session_id, "REVIEWING", state)
         return [

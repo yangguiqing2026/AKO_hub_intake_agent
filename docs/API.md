@@ -47,7 +47,7 @@
 | `auth` | `{token}` | 连接建立 | 连接后首条消息（超时未发即断开）；令牌经 identity 校验后绑定会话身份，失败回 `error(AUTH_REQUIRED)` |
 | `intake_input` | `{text}` | S00→S10 | 文本 10~2000 字符；超限回 `error(TEXT_TOO_LONG/TEXT_TOO_SHORT)` |
 | `p0_response` | `{round, answers[{qid,value}], conservative?}` | S30→S20 | `conservative: true` = 用户选择"按最保守策略处理"，触发 7.1 降级路径 |
-| `wo_edit` | `{draft_wo: {部分字段}}` | S50 人工微调 | 回写后重跑 validate（S60）与 M07 评审（S22），再发 `wo_preview`；校验失败回 `error(SCHEMA_ERROR)` |
+| `wo_edit` | `{draft_wo: {部分字段}}` | S50 人工微调 | 回写后重跑 validate（S60）与 M07 评审（S22），重置人工确认（human_confirmed=false，旧确认不穿透新草稿），再发 `wo_preview`；校验失败回 `error(SCHEMA_ERROR)` |
 | `wo_confirm` | `{}` | S22/S50→S70 | 确认投递，走三重门禁链路（见"投递链"）；registry 拦截分支无前置 status 事件（Phase B 前端须知） |
 | `wo_discard` | `{}` | →IDLE | 放弃当前工单（清空草稿回 IDLE；放弃整个会话用 `session_abandon`） |
 | `session_resume` | `{session_id}` | 断点续传 | 服务端回 `session_snapshot`；会话不存在回 `error(SESSION_NOT_FOUND)` |
