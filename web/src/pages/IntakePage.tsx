@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import type { Question } from "../schemas/ws";
 import { QuestionCard } from "../components/QuestionCard";
 import { WoPreviewCard } from "../components/WoPreviewCard";
-import { useSessionStore } from "../store/useSessionStore";
 
 // ---- 临时兼容层 ----
 // Task 2 已删除旧 api/client；本页将在 Task 6 整体重写并接入新传输层
 // （../api/ws 的 IntakeSocket）。此处内联最小 stub 仅用于保持工作树可编译。
+// Task 3 起本页不再引用 useSessionStore（五切片重写后 slice 形状不同）：
+// 页面状态暂用本地 useState 承接，待 Task 6 接入 useSessionStore/useUiStore。
 type ServerMessage =
   | { type: "p0_interrogation"; session_id: string; questions: Question[] }
   | { type: "wo_preview"; session_id: string; draft_wo: Record<string, unknown>; confidence_score: number; review_score?: number }
@@ -21,8 +22,12 @@ class IntakeSocket {
 }
 
 export function IntakePage(): JSX.Element {
-  const { sessionId, startSession, addTranscript, questions, setQuestions, previewWo, setPreview, status } = useSessionStore();
+  const [sessionId, setSessionId] = useState("");
   const [input, setInput] = useState("");
+  const [transcript, setTranscript] = useState<string[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [previewWo, setPreviewWo] = useState<Record<string, unknown> | null>(null);
+  const [status, setStatus] = useState("IDLE");
   const socketRef = useRef<IntakeSocket | null>(null);
 
   useEffect(() => {
@@ -35,24 +40,26 @@ export function IntakePage(): JSX.Element {
   function handleMessage(msg: ServerMessage): void {
     if (msg.type === "p0_interrogation") {
       setQuestions(msg.questions);
-      addTranscript(`需要澄清 ${msg.questions.length} 项：${msg.questions.map((q) => q.text).join("；")}`);
+      setTranscript((t) => [...t, `需要澄清 ${msg.questions.length} 项：${msg.questions.map((q) => q.text).join("；")}`]);
     } else if (msg.type === "wo_preview") {
-      setPreview(msg.draft_wo);
-      addTranscript(`工单已生成（置信度 ${msg.confidence_score}），请确认投递。`);
+      setPreviewWo(msg.draft_wo);
+      setTranscript((t) => [...t, `工单已生成（置信度 ${msg.confidence_score}），请确认投递。`]);
     } else if (msg.type === "status") {
+      setStatus(msg.status);
       setQuestions([]);
-      setPreview(null);
-      addTranscript(`当前状态：${msg.status}`);
+      setPreviewWo(null);
+      setTranscript((t) => [...t, `当前状态：${msg.status}`]);
     } else {
-      addTranscript(`错误：${msg.error}`);
+      setTranscript((t) => [...t, `错误：${msg.error}`]);
     }
   }
 
   function submit(): void {
     if (!input.trim()) return;
     const sid = sessionId || `sess-${Date.now()}`;
-    startSession(sid);
-    addTranscript(`您：${input}`);
+    setSessionId(sid);
+    setStatus("PARSING");
+    setTranscript((t) => [...t, `您：${input}`]);
     socketRef.current?.send("intake_input", { session_id: sid, text: input });
     setInput("");
   }
@@ -73,7 +80,7 @@ export function IntakePage(): JSX.Element {
       <div style={{ marginTop: 16 }}>
         {questions.length > 0 && <QuestionCard questions={questions} onAnswer={(answers) => socketRef.current?.send("p0_response", { session_id: sessionId, answers })} />}
         {previewWo && <WoPreviewCard wo={previewWo} onConfirm={() => socketRef.current?.send("confirm_deliver", { session_id: sessionId })} />}
-        {useSessionStore.getState().transcript.map((line, i) => (
+        {transcript.map((line, i) => (
           <p key={i} style={{ fontSize: 14, borderBottom: "1px solid #e5dcc8", padding: 4 }}>
             {line}
           </p>
@@ -82,4 +89,3 @@ export function IntakePage(): JSX.Element {
     </section>
   );
 }
-
