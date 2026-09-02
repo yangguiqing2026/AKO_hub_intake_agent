@@ -26,7 +26,7 @@ from ako_intake.services.form_builder import validate_work_order
 from ako_intake.services.observability import Metrics
 from ako_intake.services.reviewer import review_work_order
 from ako_intake.utils.logging import setup_logging
-from ako_intake.utils.naming import unique_draft_wo_number
+from ako_intake.utils.naming import unique_draft_wo_number, unique_session_id
 
 setup_logging()
 config = load_config()
@@ -137,7 +137,7 @@ def list_sessions() -> Dict[str, Any]:
 
 @app.post("/api/v1/intake/sessions", dependencies=[Depends(require_auth)])
 def create_session(body: CreateSessionBody) -> Dict[str, Any]:
-    session_id = f"sess-{datetime.now().strftime('%Y%m%d-%H%M%S%f')}"  # 微秒防同秒碰撞（终审 I3）
+    session_id = unique_session_id()  # 微秒+计数器防碰撞（基线 flaky 修复）
     if body.draft_wo is not None:
         draft = {**body.draft_wo}
         # 工单号由系统生成（白皮书 US-003），用户无需填写；当日唯一（终审 C2）

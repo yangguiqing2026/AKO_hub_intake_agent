@@ -31,6 +31,7 @@ from ako_intake.models import (
 from ako_intake.services.form_builder import validate_work_order
 from ako_intake.services.observability import Metrics
 from ako_intake.services.reviewer import review_work_order
+from ako_intake.utils.naming import unique_session_id
 from ako_intake.utils.pii import mask_pii
 
 INBOUND_TYPES = {
@@ -198,7 +199,7 @@ class WsSessionHandler:
         ]
 
     def _on_intake_input(self, msg: InboundMessage) -> List[OutboundMessage]:
-        session_id = msg.session_id or f"sess-{datetime.now().strftime('%Y%m%d-%H%M%S%f')}"  # 微秒防同秒碰撞（终审 I3）
+        session_id = msg.session_id or unique_session_id()  # 微秒+计数器防碰撞（基线 flaky 修复）
         state = {
             "session_id": session_id,
             "status": "PARSING",
