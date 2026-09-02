@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+coverage.xml
 *.py[cod]
 .pytest_cache/
 .pytest_tmp/
