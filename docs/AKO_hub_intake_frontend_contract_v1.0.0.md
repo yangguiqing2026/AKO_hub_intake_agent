@@ -210,7 +210,7 @@ tags: [agent, api, backend, frontend, workflow]
 | GET | `/health` | 存活与依赖探测（hub/registry/identity/knowledge），负载不变 |
 | GET | `/metrics` | 增强：在现有 snapshot 基础上并入 `budget`（usage_by_caller/usage_percent）与 `queue`（本地队列 stats） |
 | GET | `/api/v1/intake/sessions/{id}` | 运行时状态查询（调试/对账） |
-| POST | `/api/v1/intake/review` | M07 评审结果回写（`session_id`/`review_score`/`human_confirmed`），负载不变 |
+| POST | `/api/v1/intake/review` | M07 评审结果回写（`session_id`/`review_score`/`human_confirmed`），负载不变；Bearer 门禁（与其余会话端点一致） |
 
 #### 3.5.2 新增端点
 

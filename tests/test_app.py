@@ -196,3 +196,10 @@ def test_ws_hello_bootstrap_reconciles_soft_break(monkeypatch) -> None:
         websocket.send_json({"v": 2, "type": "auth", "payload": {"token": "dev-token"}})
         hello = websocket.receive_json()
         assert hello["payload"]["bootstrap"]["budget"]["soft_break_active"] is False
+
+
+def test_review_blocks_without_auth(monkeypatch) -> None:
+    """identity 已配置且不可达时，review 端点须 401（鉴权先于业务逻辑，缺口 3）。"""
+    monkeypatch.setattr(app_module.config, "gateways", type(app_module.config.gateways)(identity_base_url="http://127.0.0.1:9", registry_base_url="", hub_base_url=""))
+    response = client.post("/api/v1/intake/review", json={"session_id": "nope", "review_score": 0.5})
+    assert response.status_code == 401

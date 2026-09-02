@@ -77,7 +77,7 @@ def get_session(session_id: str) -> Dict[str, Any]:
     return state
 
 
-@app.post("/api/v1/intake/review")
+@app.post("/api/v1/intake/review", dependencies=[Depends(require_auth)])
 def submit_review(body: ReviewBody) -> Dict[str, Any]:
     state = session_store.load(body.session_id)
     if state is None:

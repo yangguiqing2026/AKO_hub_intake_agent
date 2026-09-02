@@ -97,7 +97,7 @@
 | GET | /health | 存活与依赖探测（hub/registry/identity/knowledge），负载不变 |
 | GET | /metrics | 增强：在现有快照基础上并入 `budget`（usage_by_caller/usage_percent）与 `queue`（本地队列 stats） |
 | GET | /api/v1/intake/sessions/{id} | 运行时状态查询（调试/对账），不存在回 404 |
-| POST | /api/v1/intake/review | M07 评审结果回写（`session_id`/`review_score`/`human_confirmed`），负载不变 |
+| POST | /api/v1/intake/review | M07 评审结果回写（`session_id`/`review_score`/`human_confirmed`），负载不变；Bearer 门禁（与其余会话端点一致） |
 
 ### 新增端点
 
@@ -112,7 +112,7 @@
 | POST | /api/v1/identity/login | `{account, fingerprint}` | 登录代理：`{token, expires_at, identity:{account}}`；identity 地址未配置时返回开发态令牌（仅限非生产） |
 | POST | /api/v1/identity/verify | `{token}` | 令牌校验代理：`{valid, identity}` |
 
-鉴权约定：REST 统一 `Authorization: Bearer <token>`；失败回 401。
+鉴权约定：除 `/health` 与 `/api/v1/identity/*` 外，全部 REST 端点要求 `Authorization: Bearer <token>`（含 `/api/v1/intake/review`）；失败回 401。identity 地址未配置时开发态放行（仅限非生产）。
 
 ---
 
