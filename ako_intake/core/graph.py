@@ -120,17 +120,21 @@ def build_nodes(config: AppConfig) -> Dict[str, object]:
         return {"status": "DELIVERED", "hub_ack": state.get("hub_ack", {})}
 
     def manual_review_node(state: IntakeState) -> Dict[str, Any]:
-        # 2026-09-03 修复③：转人工时落真实理由（轮次+未决字段），供前端展示
-        rounds = int(state.get("p0_rounds", 0))
-        fields: List[str] = []
-        try:
-            rep = state.get("ambiguity_report") or {}
-            for grp in ("fatal", "core"):
-                fields.extend(str(f.get("field", "")) for f in rep.get(grp, []))
-        except Exception:
-            pass
-        detail = "/".join(dict.fromkeys(f for f in fields if f)) or "多歧义未收敛"
-        reason = f"P0 消歧 {rounds} 轮未收敛，转人工审核（未决: {detail}）"
+        # 2026-09-03 修复③：转人工时落真实理由，区分两类入队——
+        # a) 独立评审（M07）低于阈值待人工确认；b) P0 消歧超轮未收敛
+        if state.get("review_record"):
+            reason = "独立评审（M07）低于阈值，草稿待人工确认后继续投递"
+        else:
+            rounds = int(state.get("p0_rounds", 0))
+            fields: List[str] = []
+            try:
+                rep = state.get("ambiguity_report") or {}
+                for grp in ("fatal", "core"):
+                    fields.extend(str(f.get("field", "")) for f in rep.get(grp, []))
+            except Exception:
+                pass
+            detail = "/".join(dict.fromkeys(f for f in fields if f)) or "多歧义未收敛"
+            reason = f"P0 消歧 {rounds} 轮未收敛，转人工审核（未决: {detail}）"
         return {"status": "MANUAL_REVIEW", "queue": "manual_review", "error": reason}
 
     def fail_node(state: IntakeState) -> Dict[str, Any]:
