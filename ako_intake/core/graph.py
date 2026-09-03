@@ -35,10 +35,15 @@ def build_nodes(config: AppConfig) -> Dict[str, object]:
     max_questions = config.intake.max_questions_per_round
 
     def parse_node(state: IntakeState) -> Dict[str, Any]:
-        # 幂等：已澄清动作/范围的会话不重复解析，保留人工确认结果
+        # 幂等：已有任何消解进度（action 候选/action/scope）即不重解析——
+        # 重解析会用原始文本覆盖人工澄清结果，导致跨轮进步丢失（2026-09-03 根因修复）
         if state.get("intent_tree"):
             tree = IntentTree.model_validate(state["intent_tree"])
-            if tree.entity_value("action") and tree.entity_value("scope"):
+            if (
+                tree.action_candidates
+                or tree.entity_value("action")
+                or tree.entity_value("scope")
+            ):
                 return {"updated_at": _now()}
         tree = parse_intent(state.get("raw_input", ""), config.terms)
         return {

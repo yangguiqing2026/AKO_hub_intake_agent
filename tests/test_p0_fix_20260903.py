@@ -89,3 +89,34 @@ def test_interrogate_no_answer_does_not_burn_round():
     assert out["status"] == "CLARIFYING"
     assert out["pending_questions"] == state["pending_questions"]
     assert "p0_rounds" not in out or out.get("p0_rounds", 2) == 2
+
+
+def test_multiround_progress_not_reset_by_reparse():
+    """根因回归：跨轮消解进度不被重解析覆盖（parse_node 幂等守卫）。
+
+    用户先答 action=报价、再答 scope → 应直抵投递，而非 action 被重解析清空
+    导致 3 轮超限转人工（2026-09-03 P0_MAX/P0消歧超轮 事故根因）。
+    """
+    from ako_intake.config import load_config
+    from ako_intake.core.graph import compile_graph
+    from ako_intake.models import Answer
+
+    cfg = load_config()
+    g = compile_graph(cfg)
+    raw = "给我一份300平米两层现代风格的住宅陶粒墙板的报价"
+
+    def new_state():
+        return {"session_id": "probe-t", "status": "PARSING", "raw_input": raw,
+                "clarification_log": [], "pending_answers": [], "p0_rounds": 0, "queue": "main"}
+
+    s = g.invoke(new_state())
+    assert s.get("status") == "CLARIFYING"
+    s["pending_answers"] = [Answer(qid="q-1-action", value="报价")]
+    s2 = g.invoke(s)
+    assert s2.get("intent_tree", {}).get("action_candidates") == ["报价"]
+    assert not (s2.get("ambiguity_report") or {}).get("fatal")
+    scope_qid = next(q["qid"] for q in s2.get("pending_questions", []) if q["field"] == "scope")
+    s2["pending_answers"] = [Answer(qid=scope_qid, value="只做外墙板报价，不动结构")]
+    s3 = g.invoke(s2)
+    assert s3.get("status") == "DELIVERED", f"status={s3.get('status')}"
+    assert s3.get("draft_work_order"), "应生成草稿工单"
