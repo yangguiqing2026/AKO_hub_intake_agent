@@ -15,6 +15,46 @@ from ako_intake.models import (
 )
 from ako_intake.services.ambiguity_detector import detect_ambiguities, first_questions
 
+# ── 动作词表（2026-09-03 修复：按目标 module 补全业务动词） ──────────
+# 背景：quote 域请求（“外墙板的报价”）曾因 action 选项/词面不含“报价”
+# 导致 P0 多轮无法收敛 → 误转人工并显示误导性 P0_MAX_ROUNDS_EXCEEDED。
+BASE_ACTION_OPTIONS = ["审计", "修复", "优化", "设计", "审查"]
+MODULE_ACTION_EXTRAS: dict = {
+    "quote": ["报价", "预算"],
+    "law": ["起草", "审查"],
+    "writer": ["写作", "修改"],
+}
+ACTION_SYNONYMS: dict = {
+    "报价": ["报价", "算价", "计价", "出报价", "报个价"],
+    "预算": ["预算", "成本预算"],
+}
+
+
+def module_action_options(module_value: str = "") -> List[str]:
+    """按目标 module 返回 action 选项（业务动词前置 + 基础集去重）。"""
+    extras: List[str] = []
+    mv = (module_value or "").lower()
+    for key, verbs in MODULE_ACTION_EXTRAS.items():
+        if key in mv:
+            extras.extend(verbs)
+    seen, out = set(), []
+    for v in extras + BASE_ACTION_OPTIONS:
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def normalize_action_value(value: str) -> str:
+    """自由文本答复→规范动作值（含词/近义词命中）。"""
+    v = str(value or "").strip()
+    if not v:
+        return v
+    for canonical, keys in ACTION_SYNONYMS.items():
+        if any(k in v for k in keys):
+            return canonical
+    return v
+
 
 def build_questions(report: AmbiguityReport, round_no: int, max_questions: int = 3) -> List[Question]:
     """生成反问卡片（每轮最多 3 问）。"""
@@ -27,7 +67,7 @@ def build_questions(report: AmbiguityReport, round_no: int, max_questions: int =
                     field="action",
                     text="您说的动作具体是？",
                     type="single_choice",
-                    options=["审计", "修复", "优化", "设计", "审查"],
+                    options=list(BASE_ACTION_OPTIONS),
                     required=True,
                 )
             )
@@ -61,10 +101,11 @@ def apply_answers(intent_tree: IntentTree, answers: List[Answer]) -> IntentTree:
     updated = intent_tree.model_copy(deep=True)
     for answer in answers:
         if answer.qid.endswith("-action"):
-            updated.action_candidates = [answer.value]
+            value = normalize_action_value(answer.value)
+            updated.action_candidates = [value]
             updated.entities = [
                 e for e in updated.entities if e.type != "action"
-            ] + [Entity(type="action", value=answer.value, confidence=1.0)]
+            ] + [Entity(type="action", value=value, confidence=1.0)]
         elif answer.qid.endswith("-scope"):
             updated.entities = [
                 e for e in updated.entities if e.type != "scope"

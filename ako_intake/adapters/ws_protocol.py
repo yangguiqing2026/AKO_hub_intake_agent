@@ -416,11 +416,14 @@ class WsSessionHandler:
                 )
             )
         elif status == "MANUAL_REVIEW":
+            # 2026-09-03 修复④：reason 如实取状态 error（manual_review_node 已落真实理由），
+            # 空时给通用说明，不再兜底显示误导性的 P0_MAX_ROUNDS_EXCEEDED
+            reason = str(state.get("error", "") or "已进入人工审核队列（低置信度或需人工确认）")
             out.append(
                 self._msg(
                     "manual_review",
                     session_id,
-                    {"draft_wo": mask_pii_dict(wo) if wo else {}, "reason": str(state.get("error", "") or "P0_MAX_ROUNDS_EXCEEDED")},
+                    {"draft_wo": mask_pii_dict(wo) if wo else {}, "reason": reason},
                     req_id=req_id,
                 )
             )

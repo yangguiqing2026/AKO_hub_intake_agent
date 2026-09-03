@@ -17,7 +17,7 @@ from ako_intake.models import (
 )
 from ako_intake.services.ambiguity_detector import detect_ambiguities
 from ako_intake.services.form_builder import build_work_order, validate_work_order
-from ako_intake.services.interrogator import apply_answers, build_log_entry, build_questions, still_unresolved
+from ako_intake.services.interrogator import apply_answers, build_log_entry, build_questions, still_unresolved, module_action_options
 from ako_intake.services.nlu_parser import parse_intent
 from ako_intake.services.reviewer import review_work_order, should_require_human
 
@@ -54,16 +54,34 @@ def build_nodes(config: AppConfig) -> Dict[str, object]:
 
     def interrogate_node(state: IntakeState) -> Dict[str, Any]:
         report = AmbiguityReport.model_validate(state["ambiguity_report"])
-        round_no = int(state.get("p0_rounds", 0)) + 1
         answers = state.get("pending_answers", [])
         tree = IntentTree.model_validate(state["intent_tree"])
         log = list(state.get("clarification_log", []))
+        pending = state.get("pending_questions") or []
+
+        # 2026-09-03 修复①：澄清态收到无答复重入（用户把答复当新文本发送等）
+        # 不烧轮次——原样重发问题，等待结构化答复。
+        if not answers and pending:
+            return {
+                "pending_questions": pending,
+                "status": "CLARIFYING",
+            }
+
+        round_no = int(state.get("p0_rounds", 0)) + 1
         if answers:
             tree = apply_answers(tree, answers)
             entry = build_log_entry(round_no, [], answers)
             log.append(entry.model_dump())
             report = detect_ambiguities(tree)
         questions = build_questions(report, round_no, max_questions)
+        # 2026-09-03 修复②：action 选项按目标 module 补全业务动词（quote→报价/预算…）
+        module_value = tree.entity_value("module") or ""
+        questions = [
+            q.model_copy(update={"options": module_action_options(module_value)})
+            if q.field == "action"
+            else q
+            for q in questions
+        ]
         return {
             "intent_tree": tree.model_dump(),
             "ambiguity_report": report.model_dump(),
@@ -102,7 +120,18 @@ def build_nodes(config: AppConfig) -> Dict[str, object]:
         return {"status": "DELIVERED", "hub_ack": state.get("hub_ack", {})}
 
     def manual_review_node(state: IntakeState) -> Dict[str, Any]:
-        return {"status": "MANUAL_REVIEW", "queue": "manual_review"}
+        # 2026-09-03 修复③：转人工时落真实理由（轮次+未决字段），供前端展示
+        rounds = int(state.get("p0_rounds", 0))
+        fields: List[str] = []
+        try:
+            rep = state.get("ambiguity_report") or {}
+            for grp in ("fatal", "core"):
+                fields.extend(str(f.get("field", "")) for f in rep.get(grp, []))
+        except Exception:
+            pass
+        detail = "/".join(dict.fromkeys(f for f in fields if f)) or "多歧义未收敛"
+        reason = f"P0 消歧 {rounds} 轮未收敛，转人工审核（未决: {detail}）"
+        return {"status": "MANUAL_REVIEW", "queue": "manual_review", "error": reason}
 
     def fail_node(state: IntakeState) -> Dict[str, Any]:
         return {"status": "FAILED", "error": state.get("error", "unknown")}
