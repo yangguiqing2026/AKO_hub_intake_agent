@@ -48,16 +48,6 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
 
   const threshold = Number(bootstrap?.intake?.review_score_threshold ?? 0.9);
 
-  // ── 2026-09-04 对话式反问：问题以助手气泡呈现，不再渲染多卡片表单 ──
-  const questionsKey = s.questions.map((q) => q.qid).join(",");
-  useEffect(() => {
-    if (!s.questions.length) return;
-    const texts = s.questions.map((q) => q.text).filter(Boolean);
-    if (texts.length) {
-      useSessionStore.getState().appendTranscript(`助手：${texts.join(" ")}（直接回复即可）`);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questionsKey]);
 
   // ── 2026-09-04 投递后轮询执行结果，对话内给出摘要与下载链接 ──
   const [taskResult, setTaskResult] = useState<Record<string, unknown> | null>(null);
@@ -146,6 +136,16 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
           )}
           {s.reviewRecord && (
             <ReviewPanel review={s.reviewRecord} threshold={threshold} onConfirmHuman={confirmHuman} onConfirmed={humanConfirmed} />
+          )}
+          {s.questions.length > 0 && (
+            <div className="c-card" style={{ marginTop: 12 }}>
+              {s.questions.map((q) => (
+                <p key={q.qid} style={{ margin: "4px 0", whiteSpace: "pre-wrap" }}>
+                  助手：{q.text}
+                </p>
+              ))}
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--c-text-sub)" }}>请在下方输入框直接回复</p>
+            </div>
           )}
           <DeliveryResultCard hubAck={s.hubAck} queuedLocal={s.queuedLocal} manualReview={s.manualReview} />
           {taskResult && (taskResult.status === "done" || taskResult.status === "failed") && (
