@@ -85,16 +85,22 @@ def test_intake_input_flow_to_delivered(tmp_path: Path) -> None:
 
 
 def test_clarifying_then_answer_flow(tmp_path: Path) -> None:
+    """2026-09-04 一问一答：action 一问→scope 一问→投递。"""
     handler = _handler(tmp_path)
     _send(handler, AUTH)
     out = _send(handler, {"v": 2, "type": "intake_input", "payload": {"text": "帮我看看报价模块的数据"}})
     inter = [m for m in out if m["type"] == "p0_interrogation"]
     assert inter, "应触发 P0 反问"
     session_id = inter[0]["session_id"]
-    questions = inter[0]["payload"]["questions"]
-    answers = [{"qid": q["qid"], "value": "审计" if q["field"] == "action" else "全局审计，不动数据"} for q in questions]
-    out2 = _send(handler, {"v": 2, "type": "p0_response", "session_id": session_id, "payload": {"round": 1, "answers": answers}})
-    assert [m for m in out2 if m["type"] == "status"][-1]["payload"]["status"] == "DELIVERED"
+    q1 = inter[0]["payload"]["questions"][0]
+    assert q1["field"] == "action"
+    out2 = _send(handler, {"v": 2, "type": "p0_response", "session_id": session_id, "payload": {"round": 1, "answers": [{"qid": q1["qid"], "value": "审计"}]}})
+    inter2 = [m for m in out2 if m["type"] == "p0_interrogation"]
+    assert inter2, "应追问 scope"
+    q2 = inter2[0]["payload"]["questions"][0]
+    assert q2["field"] == "scope"
+    out3 = _send(handler, {"v": 2, "type": "p0_response", "session_id": session_id, "payload": {"round": 2, "answers": [{"qid": q2["qid"], "value": "全局审计，不动数据"}]}})
+    assert [m for m in out3 if m["type"] == "status"][-1]["payload"]["status"] == "DELIVERED"
 
 
 def test_conservative_response_to_manual_review(tmp_path: Path) -> None:

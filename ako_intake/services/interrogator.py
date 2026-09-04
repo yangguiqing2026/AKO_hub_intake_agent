@@ -57,11 +57,17 @@ def normalize_action_value(value: str) -> str:
 
 
 def build_questions(report: AmbiguityReport, round_no: int, max_questions: int = 3) -> List[Question]:
-    """生成反问卡片（每轮最多 3 问）。"""
-    questions: List[Question] = []
+    """生成自然语言反问（2026-09-04 交互改造：一问一答，替代多卡片表单）。
+
+    - 每轮只取第一个*必答*歧义项，用自然语言问句推进对话；
+    - 非必答项（rules/deliverable/deadline 缺省推断）不再打扰，走默认值；
+    - action 问题附业务动词提示语（仍接受自然语言答复，同义词归一）。
+    """
     for item in first_questions(report, max_questions):
+        if not item.required_clarification or item.field in ("rules", "deliverable", "deadline"):
+            continue  # 缺省可推断项不问，交给默认值
         if item.field == "action":
-            questions.append(
+            return [
                 Question(
                     qid=f"q-{round_no}-action",
                     field="action",
@@ -70,30 +76,29 @@ def build_questions(report: AmbiguityReport, round_no: int, max_questions: int =
                     options=list(BASE_ACTION_OPTIONS),
                     required=True,
                 )
-            )
-        elif item.field == "scope":
-            questions.append(
+            ]
+        if item.field == "scope":
+            return [
                 Question(
                     qid=f"q-{round_no}-scope",
                     field="scope",
-                    text="请明确范围（只动____，不动____）：",
+                    text="这次任务的范围是什么？（只做____、不动____，请用一句话说明）",
                     type="open",
                     options=[],
                     required=True,
                 )
+            ]
+        return [
+            Question(
+                qid=f"q-{round_no}-{item.field}",
+                field=item.field,
+                text=f"「{item.field}」还不清楚，请补充说明：",
+                type="open",
+                options=[],
+                required=True,
             )
-        else:
-            questions.append(
-                Question(
-                    qid=f"q-{round_no}-{item.field}",
-                    field=item.field,
-                    text=f"「{item.field}」未声明，采用默认推断是否可接受？",
-                    type="confirm",
-                    options=["接受默认", "自定义"],
-                    required=False,
-                )
-            )
-    return questions
+        ]
+    return []
 
 
 def apply_answers(intent_tree: IntentTree, answers: List[Answer]) -> IntentTree:

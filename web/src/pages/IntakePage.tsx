@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { InputComposer } from "../components/InputComposer";
 import { ProgressStepper } from "../components/ProgressStepper";
-import { QuestionCard } from "../components/QuestionCard";
 import { WoPreviewCard } from "../components/WoPreviewCard";
 import { ReviewPanel } from "../components/ReviewPanel";
 import { DeliveryResultCard } from "../components/DeliveryResultCard";
@@ -49,6 +48,51 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
 
   const threshold = Number(bootstrap?.intake?.review_score_threshold ?? 0.9);
 
+  // ── 2026-09-04 对话式反问：问题以助手气泡呈现，不再渲染多卡片表单 ──
+  const questionsKey = s.questions.map((q) => q.qid).join(",");
+  useEffect(() => {
+    if (!s.questions.length) return;
+    const texts = s.questions.map((q) => q.text).filter(Boolean);
+    if (texts.length) {
+      useSessionStore.getState().appendTranscript(`助手：${texts.join(" ")}（直接回复即可）`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questionsKey]);
+
+  // ── 2026-09-04 投递后轮询执行结果，对话内给出摘要与下载链接 ──
+  const [taskResult, setTaskResult] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    const ack = s.hubAck as { ack?: { wo_number?: string } } | null;
+    const wo = ack?.ack?.wo_number;
+    if (!wo) {
+      setTaskResult(null);
+      return;
+    }
+    let cancelled = false;
+    let tries = 0;
+    const timer = window.setInterval(async () => {
+      tries += 1;
+      try {
+        const resp = await fetch(`${REST_BASE}/api/v1/intake/task/${encodeURIComponent(wo)}/result`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = (await resp.json()) as Record<string, unknown>;
+        if (cancelled) return;
+        if (data.status === "done" || data.status === "failed" || tries >= 12) {
+          setTaskResult(data);
+          window.clearInterval(timer);
+        }
+      } catch {
+        if (tries >= 12) window.clearInterval(timer);
+      }
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(s.hubAck as { ack?: { wo_number?: string } } | null)?.ack?.wo_number, token]);
+
   function submit(text: string): void {
     const sid = s.sessionId || `sess-${Date.now()}`;
     skipResume.current = true; // 预检裁定：本页新建会话跳过自动 resume
@@ -89,13 +133,6 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
         <>
           <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--c-text-sub)" }}>{s.sessionId ? `会话 ${s.sessionId} · ` : ""}状态：{s.status}</p>
           <ProgressStepper status={s.status} />
-          {s.questions.length > 0 && (
-            <QuestionCard
-              questions={s.questions}
-              onAnswer={(answers) => socketRef.current?.send("p0_response", s.sessionId, { round: s.round, answers })}
-              onConservative={() => socketRef.current?.send("p0_response", s.sessionId, { round: s.round, answers: [], conservative: true })}
-            />
-          )}
           {s.draftWo && (
             <WoPreviewCard
               wo={s.draftWo}
@@ -111,6 +148,26 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
             <ReviewPanel review={s.reviewRecord} threshold={threshold} onConfirmHuman={confirmHuman} onConfirmed={humanConfirmed} />
           )}
           <DeliveryResultCard hubAck={s.hubAck} queuedLocal={s.queuedLocal} manualReview={s.manualReview} />
+          {taskResult && (taskResult.status === "done" || taskResult.status === "failed") && (
+            <div className="c-card" style={{ marginTop: 12, borderLeft: "3px solid #2e9e5b" }}>
+              <h4 style={{ marginTop: 0 }}>执行结果</h4>
+              <p style={{ margin: "4px 0" }}>状态：{String(taskResult.status)}</p>
+              {taskResult.summary ? <p style={{ margin: "4px 0" }}>{String(taskResult.summary)}</p> : null}
+              {Array.isArray(taskResult.files) &&
+                (taskResult.files as { abs_path?: string }[]).map((f, i) => (
+                  <div key={i} style={{ margin: "4px 0" }}>
+                    <a
+                      href={`${REST_BASE}/api/v1/intake/download?path=${encodeURIComponent(f.abs_path ?? "")}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "var(--c-accent)" }}
+                    >
+                      下载结果文件 {i + 1}
+                    </a>
+                  </div>
+                ))}
+            </div>
+          )}
           <TranscriptPanel lines={s.transcript} />
           {s.status === "IDLE" && !s.draftWo && (
             <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--c-info)" }}>
