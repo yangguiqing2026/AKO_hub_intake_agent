@@ -118,13 +118,18 @@ export const useSessionStore = create<SessionSlice>((set, get) => ({
   },
 
   applySnapshot: (state: Record<string, unknown>, seq: number): void => {
+    // 2026-09-04 修复：resume 快照必须还原澄清进度（pending_questions/p0_rounds），
+    // 否则 CLARIFYING 会话恢复后页面空白、追问丢失
+    const questions = Array.isArray(state.pending_questions)
+      ? (state.pending_questions as unknown as Question[])
+      : [];
     set({
       sessionId: String(state.session_id ?? ""),
       status: String(state.status ?? "UNKNOWN"),
       lastSeq: seq,
-      questions: [],
-      questionExpiresAt: "",
-      round: 0,
+      questions,
+      questionExpiresAt: String(state.question_expires_at ?? ""),
+      round: Number(state.p0_rounds ?? 0) || 0,
       draftWo: (state.draft_work_order as Record<string, unknown> | undefined) ?? null,
       confidenceScore: Number((state.draft_work_order as Record<string, unknown> | undefined)?.confidence_score ?? 0),
       reviewRecord: (state.review_record as ReviewRecord | undefined) ?? null,
