@@ -60,7 +60,7 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
     }
     let cancelled = false;
     let tries = 0;
-    const timer = window.setInterval(async () => {
+    const fire = async (): Promise<void> => {
       tries += 1;
       try {
         const resp = await fetch(`${REST_BASE}/api/v1/intake/task/${encodeURIComponent(wo)}/result`, {
@@ -68,14 +68,26 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
         });
         const data = (await resp.json()) as Record<string, unknown>;
         if (cancelled) return;
-        if (data.status === "done" || data.status === "failed" || tries >= 12) {
+        console.info("[result-poll]", tries, resp.status, data.status ?? Object.keys(data));
+        if (data.status === "done" || data.status === "failed" || data.status === "not_found") {
           setTaskResult(data);
           window.clearInterval(timer);
+          return;
         }
-      } catch {
-        if (tries >= 12) window.clearInterval(timer);
+        if (tries >= 15) {
+          setTaskResult({ ...data, timeout: true });
+          window.clearInterval(timer);
+        }
+      } catch (e) {
+        console.warn("[result-poll] error", tries, e);
+        if (tries >= 15) {
+          setTaskResult({ error: String(e), timeout: true });
+          window.clearInterval(timer);
+        }
       }
-    }, 3000);
+    };
+    const timer = window.setInterval(fire, 3000);
+    void fire();
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -109,6 +121,13 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
   }
 
   // 空会话欢迎态（ChatGPT 首页居中问候 + 底部输入）
+  const showResult = !!taskResult && ((taskResult.status === "done" || taskResult.status === "failed" || taskResult.status === "not_found") || taskResult.timeout === true);
+  const resultStatus = taskResult ? String(taskResult.status ?? (taskResult.timeout ? "查询超时" : "未知")) : "";
+  const resultSummary = taskResult ? String(taskResult.summary ?? "") : "";
+  const resultError = taskResult ? String(taskResult.error ?? "") : "";
+  const resultTimeout = taskResult?.timeout === true;
+  const resultFiles = taskResult && Array.isArray(taskResult.files) ? (taskResult.files as { abs_path?: string }[]) : [];
+
   const idleEmpty = s.status === "IDLE" && s.transcript.length === 0 && !s.draftWo && s.questions.length === 0
     && !s.reviewRecord && !s.hubAck && !s.queuedLocal && !s.manualReview;
 
@@ -148,24 +167,25 @@ export function IntakePage({ socket }: { socket?: IntakeSocketLike | null }): JS
             </div>
           )}
           <DeliveryResultCard hubAck={s.hubAck} queuedLocal={s.queuedLocal} manualReview={s.manualReview} />
-          {taskResult && (taskResult.status === "done" || taskResult.status === "failed") && (
+          {showResult && (
             <div className="c-card" style={{ marginTop: 12, borderLeft: "3px solid #2e9e5b" }}>
               <h4 style={{ marginTop: 0 }}>执行结果</h4>
-              <p style={{ margin: "4px 0" }}>状态：{String(taskResult.status)}</p>
-              {taskResult.summary ? <p style={{ margin: "4px 0" }}>{String(taskResult.summary)}</p> : null}
-              {Array.isArray(taskResult.files) &&
-                (taskResult.files as { abs_path?: string }[]).map((f, i) => (
-                  <div key={i} style={{ margin: "4px 0" }}>
-                    <a
-                      href={`${REST_BASE}/api/v1/intake/download?path=${encodeURIComponent(f.abs_path ?? "")}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "var(--c-accent)" }}
-                    >
-                      下载结果文件 {i + 1}
-                    </a>
-                  </div>
-                ))}
+              <p style={{ margin: "4px 0" }}>状态：{resultStatus}</p>
+              {resultTimeout && <p style={{ margin: "4px 0", color: "#b26a00" }}>结果暂未在对话内取到，请稍后在 AKO 看板任务列表查看。</p>}
+              {resultError ? <p style={{ margin: "4px 0", color: "#b00020" }}>查询出错：{resultError}</p> : null}
+              {resultSummary ? <p style={{ margin: "4px 0" }}>{resultSummary}</p> : null}
+              {resultFiles.map((f, i) => (
+                <div key={i} style={{ margin: "4px 0" }}>
+                  <a
+                    href={`${REST_BASE}/api/v1/intake/download?path=${encodeURIComponent(f.abs_path ?? "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: "var(--c-accent)" }}
+                  >
+                    下载结果文件 {i + 1}
+                  </a>
+                </div>
+              ))}
             </div>
           )}
           <TranscriptPanel lines={s.transcript} />
