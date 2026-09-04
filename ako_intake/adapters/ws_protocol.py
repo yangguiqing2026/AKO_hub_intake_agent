@@ -18,8 +18,8 @@ from ako_intake.core.pipeline import deliver_with_local_queue
 from ako_intake.db.queue_store import QueueStore
 from ako_intake.db.session_store import SessionStore
 from ako_intake.gateways.hub_client import HubClient
-from ako_intake.gateways.identity_client import verify_human
 from ako_intake.gateways.registry_client import verify_target
+from ako_intake.services.auth_sessions import AuthIdentity, DEV_IDENTITY, validate_session
 from ako_intake.models import (
     Ako1WorkOrder,
     Answer,
@@ -124,6 +124,7 @@ class WsSessionHandler:
         self.budget = budget
         self.authenticated = False
         self.identity: str = ""
+        self.is_audit: bool = False
         self._seqs: Dict[str, int] = {}
         # 预算软熔断状态 latch（每连接）：None=未初始化，True/False=上次已通知的状态
         self._soft_break_told: Optional[bool] = None
@@ -213,12 +214,35 @@ class WsSessionHandler:
 
     # ---- 入站处理器 ----
 
+    def _load_owned(self, session_id: str) -> Dict[str, Any]:
+        """加载会话并做归属校验（2026-09-03 多员工隔离）。
+
+        不存在 → SESSION_NOT_FOUND；非本人且非安全官（intake_audit）→ FORBIDDEN；
+        历史会话（owner=''）仅安全官可恢复。
+        """
+        state = self.session_store.load(session_id)
+        if state is None:
+            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        owner = self.session_store.owner_of(session_id)
+        if owner is not None and owner != self.identity and not self.is_audit:
+            raise ProtocolError("FORBIDDEN", "会话不属于当前员工")
+        return state
+
     def _on_auth(self, msg: InboundMessage) -> List[OutboundMessage]:
-        result = verify_human(msg.payload.token, self.config.gateways.identity_base_url)
-        if not result.get("ok"):
-            raise ProtocolError("AUTH_REQUIRED", f"身份校验失败: {result.get('error', '')}")
+        """首帧认证（2026-09-03 多员工隔离）：校验 intake 会话层 token。
+
+        identity_base_url 未配置（开发态）→ 任意非空 token 放行为 DEV_IDENTITY（还原旧 mock 语义）。
+        """
+        token = str(msg.payload.token or "").strip()
+        if not token:
+            raise ProtocolError("AUTH_REQUIRED", "缺少认证 token")
+        dev_mode = not bool(self.config.gateways.identity_base_url)
+        identity: Optional[AuthIdentity] = DEV_IDENTITY if dev_mode else validate_session(token, dev_mode=False)
+        if identity is None:
+            raise ProtocolError("AUTH_REQUIRED", "身份校验失败，请重新登录")
         self.authenticated = True
-        self.identity = str(result.get("human_id", ""))
+        self.identity = identity.human_id
+        self.is_audit = identity.is_audit
         return [
             self._msg(
                 "hello",
@@ -247,15 +271,13 @@ class WsSessionHandler:
         self.metrics.increment("sessions_total")
         out = [self._msg("status", session_id, {"status": "PARSING"}, req_id=msg.req_id)]
         result = self.graph.invoke(state)
-        self.session_store.save(session_id, str(result.get("status", "UNKNOWN")), result)
+        self.session_store.save(session_id, str(result.get("status", "UNKNOWN")), result, owner=self.identity)
         out.extend(self._events_from_state(result, msg.req_id))
         return out
 
     def _on_p0_response(self, msg: InboundMessage) -> List[OutboundMessage]:
         session_id = msg.session_id
-        state = self.session_store.load(session_id)
-        if state is None:
-            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        state = self._load_owned(session_id)
         if msg.payload.conservative:
             # 用户选择"按最保守策略处理"（US-002）→ 直接触发 7.1 降级（人工审核）
             state["pending_answers"] = []
@@ -269,9 +291,7 @@ class WsSessionHandler:
 
     def _on_wo_edit(self, msg: InboundMessage) -> List[OutboundMessage]:
         session_id = msg.session_id
-        state = self.session_store.load(session_id)
-        if state is None:
-            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        state = self._load_owned(session_id)
         merged = {**(state.get("draft_work_order") or {}), **msg.payload.draft_wo}
         wo = Ako1WorkOrder.model_validate(merged)
         problems = validate_work_order(wo)
@@ -300,9 +320,7 @@ class WsSessionHandler:
 
     def _on_wo_confirm(self, msg: InboundMessage) -> List[OutboundMessage]:
         session_id = msg.session_id
-        state = self.session_store.load(session_id)
-        if state is None:
-            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        state = self._load_owned(session_id)
         wo_data = state.get("draft_work_order")
         if not wo_data:
             raise ProtocolError("INVALID_PAYLOAD", "无草稿工单可投递")
@@ -322,9 +340,7 @@ class WsSessionHandler:
 
     def _on_wo_discard(self, msg: InboundMessage) -> List[OutboundMessage]:
         session_id = msg.session_id
-        state = self.session_store.load(session_id)
-        if state is None:
-            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        state = self._load_owned(session_id)
         state["draft_work_order"] = None
         state["status"] = "IDLE"
         self.session_store.save(session_id, "IDLE", state)
@@ -332,9 +348,7 @@ class WsSessionHandler:
 
     def _on_session_resume(self, msg: InboundMessage) -> List[OutboundMessage]:
         session_id = msg.payload.session_id
-        state = self.session_store.load(session_id)
-        if state is None:
-            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        state = self._load_owned(session_id)
         seq = self.next_seq(session_id)
         return [
             self._msg(
@@ -348,9 +362,7 @@ class WsSessionHandler:
 
     def _on_session_abandon(self, msg: InboundMessage) -> List[OutboundMessage]:
         session_id = msg.session_id
-        state = self.session_store.load(session_id)
-        if state is None:
-            raise ProtocolError("SESSION_NOT_FOUND", "会话不存在")
+        state = self._load_owned(session_id)
         state["status"] = "ABANDONED"
         self.session_store.save(session_id, "ABANDONED", state)
         return [self._msg("status", session_id, {"status": "ABANDONED"}, req_id=msg.req_id)]
