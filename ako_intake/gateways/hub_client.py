@@ -94,13 +94,20 @@ class HubClient:
         )
         return HubAck.model_validate(result)
 
-    def deliver_wo(self, wo: Ako1WorkOrder) -> HubAck:
-        result = self._request("/api/v1/hub/wo/deliver", wo.to_payload())
+    def deliver_wo(self, wo: Ako1WorkOrder, extra: Optional[Dict[str, Any]] = None) -> HubAck:
+        """投递正式工单；extra 为随工单透传的附加字段（2026-09-09：
+        writer.topic / quote.raw_input——hub 服务端原样存 raw_payload）。"""
+        payload = wo.to_payload()
+        if extra:
+            payload.update(extra)
+        result = self._request("/api/v1/hub/wo/deliver", payload)
         return HubAck.model_validate(result)
 
     def deliver_raw(self, payload_json: str) -> HubAck:
+        """按队列持久化载荷原样投递（含透传字段，不过 model 过滤丢字段）。"""
         payload = json.loads(payload_json)
-        return self.deliver_wo(Ako1WorkOrder.model_validate(payload))
+        result = self._request("/api/v1/hub/wo/deliver", payload)
+        return HubAck.model_validate(result)
 
     def deliver_with_retry(
         self,

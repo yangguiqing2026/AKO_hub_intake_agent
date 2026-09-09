@@ -41,12 +41,20 @@ def deliver_with_local_queue(
 ) -> Dict[str, Any]:
     """投递；Hub 不可达时入本地队列（eventual，零丢失）。"""
     wo = Ako1WorkOrder.model_validate(state["draft_work_order"])
+    # 2026-09-09：用户原始需求随工单透传（intake 澄清只归档原文，结构化参数缺失）
+    # - writer：topic 取原文（否则 writer 落默认主题）
+    # - quote：raw_input 供 adapter 解析面积/墙板/厚度（否则落默认 100㎡ 与输入不一致）
+    extra: Dict[str, str] = {}
+    if wo.module == "AKO_writer_agent":
+        extra["topic"] = state.get("raw_input", "")
+    elif wo.module == "AKO_quote_agent":
+        extra["raw_input"] = state.get("raw_input", "")
     try:
-        ack = hub_client.deliver_wo(wo)
+        ack = hub_client.deliver_wo(wo, extra=extra)
         state["hub_ack"] = ack.model_dump()
         state["status"] = "DELIVERED"
     except HubUnreachable:
-        queue_store.enqueue(wo.wo_number, wo.to_payload())
+        queue_store.enqueue(wo.wo_number, {**wo.to_payload(), **extra})
         state["status"] = "QUEUED_LOCAL"
         state["queue"] = "local"
     return state
