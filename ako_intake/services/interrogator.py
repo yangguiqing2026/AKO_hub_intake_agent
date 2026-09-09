@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import List
 
@@ -14,6 +15,17 @@ from ako_intake.models import (
     Question,
 )
 from ako_intake.services.ambiguity_detector import detect_ambiguities, first_questions
+
+# 2026-09-09：项目名答复清洗——用户常复述问句（“项目名称是XX”），
+# 直接入库会使报价单抬头带“测试项目名称是测试项目A”式脏句。
+# 剥到第一个“……项目(名称)是/叫/为/：”之后的内容；无前缀则原样保留。
+_PROJECT_NAME_LEAD_RE = re.compile(r"^.*?项目(?:名|名称)?(?:是|叫|为|：|:)\s*")
+
+
+def clean_project_name(value: str) -> str:
+    """剥离答复中的项目名引导前缀，返回纯项目名。"""
+    cleaned = _PROJECT_NAME_LEAD_RE.sub("", value.strip())
+    return cleaned or value.strip()
 
 # ── 动作词表（2026-09-03 修复：按目标 module 补全业务动词） ──────────
 # 背景：quote 域请求（“外墙板的报价”）曾因 action 选项/词面不含“报价”
@@ -88,6 +100,18 @@ def build_questions(report: AmbiguityReport, round_no: int, max_questions: int =
                     required=True,
                 )
             ]
+        if item.field == "project_name":
+            # 2026-09-04：报价类任务追问项目名，保证报价单抬头与用户输入一致
+            return [
+                Question(
+                    qid=f"q-{round_no}-project_name",
+                    field="project_name",
+                    text="本次报价的项目名称是什么？（将作为报价单抬头，如：桐木岭城市微更新商业体）",
+                    type="open",
+                    options=[],
+                    required=True,
+                )
+            ]
         return [
             Question(
                 qid=f"q-{round_no}-{item.field}",
@@ -115,6 +139,11 @@ def apply_answers(intent_tree: IntentTree, answers: List[Answer]) -> IntentTree:
             updated.entities = [
                 e for e in updated.entities if e.type != "scope"
             ] + [Entity(type="scope", value=answer.value, confidence=1.0)]
+        elif answer.qid.endswith("-project_name"):
+            value = clean_project_name(answer.value)
+            updated.entities = [
+                e for e in updated.entities if e.type != "project_name"
+            ] + [Entity(type="project_name", value=value, confidence=1.0)]
     return updated
 
 
