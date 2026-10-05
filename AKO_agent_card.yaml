@@ -1,11 +1,12 @@
-level: unrated
+level: C
 name: AKO_hub_intake_agent
 name_zh: 阿格工厂大门 Intake Agent
 version: v0.1.0
 author: AKO_studio
 legal_entity: "91520198MAC8N3YB6U"
 interface_type: api
-status: staging
+status: active
+lifecycle_state: production
 description: AKO 工厂唯一入口网关：将人类自然语言转化为结构化 ako1 工单，经 P0 歧义消解与 M07 独立评审后投递 AKO_hub。
 architecture:
   language: Python
