@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -28,11 +29,15 @@ from ako_intake.models import (
     OutboundMessage,
     TermBrief,
 )
-from ako_intake.services.form_builder import validate_work_order
+from ako_intake.services.form_builder import FALLBACK_MODULE, validate_work_order
 from ako_intake.services.observability import Metrics
 from ako_intake.services.reviewer import review_work_order
 from ako_intake.utils.naming import unique_session_id
 from ako_intake.utils.pii import mask_pii
+from ako_intake.utils.logging import get_logger
+
+logger = get_logger("ws")
+
 
 INBOUND_TYPES = {
     "auth",
@@ -181,35 +186,53 @@ class WsSessionHandler:
     # ---- 主入口 ----
 
     def handle_text(self, raw: str) -> List[OutboundMessage]:
-        """处理一条入站文本；所有异常转为 error 出站消息。"""
+        """处理一条入站文本；所有异常转为 error 出站消息。
+
+        2026-09-16：入站消息**先落盘再处理**（logs/intake.log）。此前只有
+        INTAKE_WS_DEBUG=1 的 stdout 打印、且后端 stdout 未落盘 ——
+        "我输入了任务但总控台看不到"时无从定位（实测 nginx 访问日志显示
+        请求根本没到服务器，前端那条链路的故障只能靠浏览器侧证据）。
+        """
+        logger.info(f"ws_in len={len(raw)} head={raw[:160]}")
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
+            logger.warning(f"ws_reject INVALID_PAYLOAD json={exc}")
             return [self._err("INVALID_PAYLOAD", f"JSON 解析失败: {exc}")]
         if not isinstance(data, dict) or data.get("v") != 2:
+            logger.warning(f"ws_reject PROTOCOL_VERSION_MISMATCH v={data.get('v') if isinstance(data, dict) else type(data).__name__}")
             return [self._err("PROTOCOL_VERSION_MISMATCH", "协议版本必须为 2")]
         req_id = str(data.get("req_id", ""))
         msg_type = data.get("type")
         if msg_type not in INBOUND_TYPES:
+            logger.warning(f"ws_reject INVALID_MESSAGE_TYPE type={msg_type}")
             return [self._err("INVALID_MESSAGE_TYPE", f"未知消息类型: {msg_type}", req_id)]
         if not self.authenticated and msg_type != "auth":
+            logger.warning(f"ws_reject AUTH_REQUIRED type={msg_type}")
             return [self._err("AUTH_REQUIRED", "请先发送 auth", req_id)]
         try:
             msg = InboundMessage.model_validate(data)
         except ValidationError as exc:
+            logger.warning(f"ws_reject INVALID_PAYLOAD type={msg_type} err={exc}")
             return [self._err("INVALID_PAYLOAD", f"负载校验失败: {exc}", req_id)]
         try:
             handler = getattr(self, f"_on_{msg_type}")
             out = handler(msg)
+            logger.info(
+                f"ws_handled type={msg_type} sid={msg.session_id or '-'} out={len(out)}"
+            )
             # 软熔断沿检测挂入站消息响应尾部；auth 已由 hello.bootstrap 快照对账，跳过避免重复
             if msg_type != "auth":
                 self._append_soft_break_transition(out)
             return out
         except ProtocolError as exc:
+            logger.warning(f"ws_reject {exc.code} type={msg_type} msg={exc.message}")
             return [self._err(exc.code, exc.message, req_id)]
         except ValidationError as exc:
+            logger.warning(f"ws_reject INVALID_PAYLOAD type={msg_type} err={exc}")
             return [self._err("INVALID_PAYLOAD", f"负载校验失败: {exc}", req_id)]
         except Exception as exc:
+            logger.error(f"ws_internal type={msg_type} err={type(exc).__name__}: {exc}")
             return [self._err("INTERNAL", f"处理失败: {exc}", req_id)]
 
     # ---- 入站处理器 ----
@@ -324,6 +347,21 @@ class WsSessionHandler:
         wo_data = state.get("draft_work_order")
         if not wo_data:
             raise ProtocolError("INVALID_PAYLOAD", "无草稿工单可投递")
+        # 第一重门禁（2026-09-09）：NLU 未命中术语的兜底模块（幽灵 spoke，hub 注册表
+        # 无此 workflow）必然不可路由；不投递、转人工指定目标 agent（可编辑后重新确认）
+        if wo_data.get("module") == FALLBACK_MODULE:
+            state["status"] = "MANUAL_REVIEW"
+            state["queue"] = "manual_review"
+            state["error"] = "UNROUTABLE_MODULE"
+            self.session_store.save(session_id, "MANUAL_REVIEW", state)
+            return [
+                self._msg(
+                    "manual_review",
+                    session_id,
+                    {"draft_wo": mask_pii_dict(wo_data), "reason": "UNROUTABLE_MODULE"},
+                    req_id=msg.req_id,
+                )
+            ]
         # 第二重门禁：等级校验（仅 registry 已配置时拦截，设计 5.3）
         if self.config.gateways.registry_base_url:
             verify = verify_target(wo_data.get("module", ""), "AKO_hub_intake_agent", self.config.gateways.registry_base_url)

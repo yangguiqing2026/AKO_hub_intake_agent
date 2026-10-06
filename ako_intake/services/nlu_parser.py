@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from typing import List, Optional
 
 from ako_intake.config import TermEntry
 from ako_intake.models import Entity, IntentTree
+
+# 项目名宣告式：「项目名称是X」「项目名称为X」「项目名称：X」「项目叫X」
+# 值以逗号/句号/分号/换行收尾（这些是分句边界，不是名称的一部分）
+_PROJECT_NAME_RE = re.compile(r"项目(?:名称|名)?\s*(?:是|为|叫|：|:)\s*([^，,。；;！!？?\n]{1,40})")
+_TRAILING_PUNCT_RE = re.compile(r"[\s。．.！!？?；;，,、]+$")
 
 ACTION_KEYWORDS: dict[str, List[str]] = {
     "审计": ["审计"],
@@ -18,6 +24,8 @@ ACTION_KEYWORDS: dict[str, List[str]] = {
     "排版": ["排版"],
     "看看": ["审计", "修复", "查看"],
     "检查": ["审查", "检查"],
+    # 2026-09-09：写作类动作（"写一篇论文"→撰写），配合 terms 写作词条路由
+    "写": ["撰写"],
 }
 
 SCOPE_PATTERN_ATTRS = ("只动", "仅动", "不要动", "不动", "不动数据库")
@@ -50,6 +58,23 @@ def _find_scope(raw_text: str) -> Optional[str]:
     return None
 
 
+def _find_project_name(raw_text: str) -> Optional[Entity]:
+    """抽取项目名宣告（报价单抬头用）。
+
+    2026-09-14：故障单 WO-DRAFT-20260914-162054808 的原话里明写
+    「请就325平米的两层住宅，计算陶粒墙板报价书，项目名称是贵阳市杨氏住宅。」，
+    但 entities 里只有 module —— 项目名未被识别，抬头落成内部默认值 taoli，
+    且项目名门禁放宽后还会再追问一遍用户已经写明的信息。
+    """
+    matched = _PROJECT_NAME_RE.search(raw_text)
+    if not matched:
+        return None
+    value = _TRAILING_PUNCT_RE.sub("", matched.group(1).strip())
+    if not value:
+        return None
+    return Entity(type="project_name", value=value, confidence=0.9)
+
+
 def _find_time_ref(raw_text: str) -> Optional[Entity]:
     """解析时间指代（最近/N天）。"""
     if "最近" in raw_text:
@@ -73,6 +98,9 @@ def parse_intent(raw_text: str, terms: List[TermEntry] | None = None) -> IntentT
     scope = _find_scope(raw_text)
     if scope:
         entities.append(Entity(type="scope", value=scope, confidence=0.8))
+    project_name = _find_project_name(raw_text)
+    if project_name:
+        entities.append(project_name)
     time_ref = _find_time_ref(raw_text)
     if time_ref:
         entities.append(time_ref)
